@@ -88,8 +88,14 @@ class deepGAN(object):
                     deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name=name+'_h3'))
 
     def build_model(self):
-        self.y = tf.placeholder(tf.float32, [self.batch_size, self.y_dim], name='y')
-        image_dims = [self.input_height, self.input_width, self.c_dim]
+        if self.y_dim:
+            self.y = tf.placeholder(tf.float32, [self.batch_size, self.y_dim], name='y')
+
+        if self.is_crop:
+            image_dims = [self.output_height, self.output_width, self.c_dim]
+        else:
+            image_dims = [self.input_height, self.input_width, self.c_dim]
+
         self.inputs = tf.placeholder(
             tf.float32, [self.batch_size] + image_dims, name='real_images')
         self.sample_inputs = tf.placeholder(
@@ -201,10 +207,12 @@ class deepGAN(object):
         else:
             print(" [!] Load failed...")
 
-        optims = [[d1_optim, g1_optim, self.d1_loss,
-                   self.g1_loss, self.g1_sampler],
-                  [d2_optim, g2_optim, self.d2_loss,
-                   self.g2_loss, self.g2_sampler]]
+        generators = [[d1_optim, g1_optim, self.d1_loss,
+                       self.g1_loss, self.d1_sum,
+                       self.g1_sum, self.g1_sampler],
+                      [d2_optim, g2_optim, self.d2_loss,
+                       self.g2_loss, self.d2_sum,
+                       self.g2_sum, self.g2_sampler]]
         for epoch in xrange(config.epoch):
             batch_idxs = min(len(data_X), config.train_size) // config.batch_size
             for idx in xrange(0, batch_idxs):
@@ -214,47 +222,51 @@ class deepGAN(object):
 
                 ## the key algorithms for deep GAN ##
                 generator = 1
-                for d_optim, g_optim, d_loss, g_loss, sampler in optims:
+                for d_optim, g_optim, d_loss, g_loss, d_sum, g_sum, sampler in generators:
                     # Update D network
-                    print(batch_labels)
-                    _, summary_str = self.sess.run(d_optim, feed_dict={
-                        self.inputs: batch_images,
-                        self.z: batch_z,
-                        self.y: batch_labels
-                    })
+                    _, summary_str = self.sess.run([d_optim, d_sum],
+                                                   feed_dict={
+                                                       self.inputs: batch_images,
+                                                       self.z: batch_z,
+                                                       self.y: batch_labels
+                                                   })
                     self.writer.add_summary(summary_str, counter)
 
                     # Update G network
-                    _, summary_str = self.sess.run(g_optim, feed_dict={
+                    _, summary_str = self.sess.run([g_optim, g_sum], feed_dict={
                         self.z: batch_z,
                         self.y: batch_labels,
                     })
                     self.writer.add_summary(summary_str, counter)
 
                     # Run g_optim twice
-                    _, summary_str = self.sess.run(g_optim, feed_dict={
+                    _, summary_str = self.sess.run([g_optim, g_sum], feed_dict={
                         self.z: batch_z,
                         self.y: batch_labels,
                     })
                     self.writer.add_summary(summary_str, counter)
 
-                    errD_fake = self.d_loss_fake.eval({
-                        self.z: batch_z,
-                        self.y: batch_labels
-                    })
-                    errD_real = self.d_loss_real.eval({
-                        self.inputs: batch_images,
-                        self.y: batch_labels
-                    })
-                    errG = self.g_loss.eval({
-                        self.z: batch_z,
-                        self.y: batch_labels
-                    })
+#                    errD_g1asFake = self.d_loss_g1asFake.eval({
+#                        self.z: batch_z,
+#                        self.y: batch_labels
+#                    })
+#                    errD_g2asFake = self.d_loss_g2asFake.eval({
+#                        self.z: batch_z,
+#                        self.y: batch_labels
+#                    })
+#                    errD_real = self.d_loss_real.eval({
+#                        self.inputs: batch_images,
+#                        self.y: batch_labels
+#                    })
+#                    errG = g_loss.eval({
+#                        self.z: batch_z,
+#                        self.y: batch_labels
+#                    })
 
                     counter += 1
-                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f"
-                          % (generator, epoch, idx, batch_idxs,
-                             time.time() - start_time, errD_fake + errD_real, errG))
+#                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f"
+#                          % (generator, epoch, idx, batch_idxs,
+#                             time.time() - start_time, errD_g2asFake + errD_g1asFake + errD_real, errG))
                     generator += 1
 
                     if np.mod(counter, 100) == 1:
