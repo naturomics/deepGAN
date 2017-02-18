@@ -10,7 +10,7 @@ from utils import *
 
 class deepGAN(object):
     def __init__():
-        pass
+        self.z_dim
 
     class generator:
         def __init__(self, z, y, name='generator'):
@@ -20,56 +20,56 @@ class deepGAN(object):
         self.y = tf.placeholder(tf.float32, [self.batch_size, self.y_dim], name='y')
         image_dims = [self.input_height, self.input_width, self.c_dim]
         self.inputs = tf.placeholder(
-        self.sample_inputs = tf.placeholder(
-            tf.float32, [self.sample_num] + image_dims, name='sample_inputs')
+            self.sample_inputs = tf.placeholder(
+                tf.float32, [self.sample_num] + image_dims, name='sample_inputs')
 
-        #inputs = self.inputs
-        #sample_inputs = self.sample_inputs
+            #inputs = self.inputs
+            #sample_inputs = self.sample_inputs
 
-        self.z = tf.placeholder(tf.float32, [None, self.z_dim], name='z')
-        self.z_sum = histogram_summary("z", self.z)
+            self.z = tf.placeholder(tf.float32, [None, self.z_dim], name='z')
+            self.z_sum = histogram_summary("z", self.z)
 
-        self.G1 = deepGAN.generator(self.z, self.y, name='G1')
-        self.G2 = deepGAN.generator(self.z, self.y, name='G2')
-        self.D, self.D_logits = self.discriminator(input, self.y, reuser=False)
+            self.G1 = deepGAN.generator(self.z, self.y, name='G1')
+            self.G2 = deepGAN.generator(self.z, self.y, name='G2')
+            self.D, self.D_logits = self.discriminator(input, self.y, reuser=False)
 
-        self.sampler = self.sampler(self.z, self.y)
-        self.D1_, self.D1_logits_ =  self.discriminator(self.G1, self.y, reuse=True)
-        self.D2_, self.D2_logits_ =  self.discriminator(self.G2, self.y, reuse=True)
+            self.sampler = self.sampler(self.z, self.y)
+            self.D1_, self.D1_logits_ =  self.discriminator(self.G1, self.y, reuse=True)
+            self.D2_, self.D2_logits_ =  self.discriminator(self.G2, self.y, reuse=True)
 
-        self.d_sum = histogram_summary("d", self.D)
-        self.d1__sum = histogram_summary("d1_", self.D1_)
-        self.d2__sum = histogram_summary("d2_", self.D2_)
-        self.G1_sum = image_summary("G1", self.G1)
-        self.G2_sum = image_summary("G2", self.G2)
+            self.d_sum = histogram_summary("d", self.D)
+            self.d1__sum = histogram_summary("d1_", self.D1_)
+            self.d2__sum = histogram_summary("d2_", self.D2_)
+            self.G1_sum = image_summary("G1", self.G1)
+            self.G2_sum = image_summary("G2", self.G2)
 
-        self.d_loss_real = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D_logits, labels=tf.ones_like(self.D)))
-        self.d_loss_g1asReal = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D1_logits_, labels=tf.ones_like(self.D1_)))
-        self.d_loss_g1asFake = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D1_logits_, labels=tf.zeros_like(self.D1_)))
-        self.d_loss_g2asReal = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D2_logits_, labels=tf.ones_like(self.D2_)))
-        self.d_loss_g2asFake = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D2_logits_, labels=tf.zeros_like(self.D2_)))
+            self.d_loss_real = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    logits=self.D_logits, labels=tf.ones_like(self.D)))
+            self.d_loss_g1asReal = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    logits=self.D1_logits_, labels=tf.ones_like(self.D1_)))
+            self.d_loss_g1asFake = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    logits=self.D1_logits_, labels=tf.zeros_like(self.D1_)))
+            self.d_loss_g2asReal = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    logits=self.D2_logits_, labels=tf.ones_like(self.D2_)))
+            self.d_loss_g2asFake = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    logits=self.D2_logits_, labels=tf.zeros_like(self.D2_)))
 
-        self.g1_loss = self.d_loss_g1asReal
-        self.g2_loss = self.d_loss_g2asReal
+            self.g1_loss = self.d_loss_g1asReal
+            self.g2_loss = self.d_loss_g2asReal
 
-        self.d1_loss = self.d_loss_real + self.d_loss_g1asFake + self.d_loss_g2asReal
-        self.d2_loss = self.d_loss_real + self.d_loss_g1asReal + self.d_loss_g2asFake
+            self.d1_loss = self.d_loss_real + self.d_loss_g1asFake + self.d_loss_g2asReal
+            self.d2_loss = self.d_loss_real + self.d_loss_g1asReal + self.d_loss_g2asFake
 
-        self.d_loss_real_sum =  scalar_summary("d_loss_real",  self.d_loss_real)
-        self.d_loss_g1asFake_sum =  scalar_summary("d_loss_g1asFake",  self.d_loss_g1asFake)
-        self.d_loss_g2asFake_sum =  scalar_summary("d_loss_g2asFake",  self.d_loss_g2asFake)
-        self.d1_loss_sum =  scalar_summary("d1_loss",  self.d1_loss)
-        self.d2_loss_sum =  scalar_summary("d2_loss",  self.d2_loss)
+            self.d_loss_real_sum =  scalar_summary("d_loss_real",  self.d_loss_real)
+            self.d_loss_g1asFake_sum =  scalar_summary("d_loss_g1asFake",  self.d_loss_g1asFake)
+            self.d_loss_g2asFake_sum =  scalar_summary("d_loss_g2asFake",  self.d_loss_g2asFake)
+            self.d1_loss_sum =  scalar_summary("d1_loss",  self.d1_loss)
+            self.d2_loss_sum =  scalar_summary("d2_loss",  self.d2_loss)
         self.g1_loss_sum =  scalar_summary("g1_loss",  self.g1_loss)
         self.g2_loss_sum =  scalar_summary("g2_loss",  self.g2_loss)
 
@@ -176,8 +176,8 @@ class deepGAN(object):
 
                     counter += 1
                     print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f"
-                        % (generator, epoch, idx, batch_idxs,
-                            time.time() - start_time, errD_fake + errD_real, errG))
+                          % (generator, epoch, idx, batch_idxs,
+                             time.time() - start_time, errD_fake + errD_real, errG))
                     generator += 1
 
                     if np.mod(counter, 100) == 1:
@@ -219,3 +219,63 @@ class deepGAN(object):
             h3 = linear(h2, 1, 'd_h3_lin')
 
             return tf.nn.sigmoid(h3), h3
+
+    def sampler(self, z, y=None):
+        with tf.variable_scope("generator") as scope:
+            scope.reuse_variables()
+
+            s_h, s_w = self.output_height, self.output_width
+            s_h2, s_h4 = int(s_h/2), int(s_h/4)
+            s_w2, s_w4 = int(s_w/2), int(s_w/4)
+
+            yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
+            z = concat([z, y], 1)
+
+            h0 = tf.nn.relu(self.g_bn0(linear(z, self.gfc_dim, 'g_h0_lin')))
+            h0 = concat([h0, y], 1)
+
+            h1 = tf.nn.relu(self.g_bn1(linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin'), train=False))
+            h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
+            h1 = conv_cond_concat(h1, yb)
+
+            h2 = tf.nn.relu(self.g_bn2(deconv2d(h1, [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name='g_h2'), train=False))
+            h2 = conv_cond_concat(h2, yb)
+
+            return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name='g_h3'))
+
+    def load_mnist(self):
+        data_dir = os.path.join("./data", self.dataset_name)
+
+        fd = open(os.path.join(data_dir,'train-images-idx3-ubyte'))
+        loaded = np.fromfile(file=fd,dtype=np.uint8)
+        trX = loaded[16:].reshape((60000,28,28,1)).astype(np.float)
+
+        fd = open(os.path.join(data_dir,'train-labels-idx1-ubyte'))
+        loaded = np.fromfile(file=fd,dtype=np.uint8)
+        trY = loaded[8:].reshape((60000)).astype(np.float)
+
+        fd = open(os.path.join(data_dir,'t10k-images-idx3-ubyte'))
+        loaded = np.fromfile(file=fd,dtype=np.uint8)
+        teX = loaded[16:].reshape((10000,28,28,1)).astype(np.float)
+
+        fd = open(os.path.join(data_dir,'t10k-labels-idx1-ubyte'))
+        loaded = np.fromfile(file=fd,dtype=np.uint8)
+        teY = loaded[8:].reshape((10000)).astype(np.float)
+
+        trY = np.asarray(trY)
+        teY = np.asarray(teY)
+
+        X = np.concatenate((trX, teX), axis=0)
+        y = np.concatenate((trY, teY), axis=0).astype(np.int)
+
+        seed = 547
+        np.random.seed(seed)
+        np.random.shuffle(X)
+        np.random.seed(seed)
+        np.random.shuffle(y)
+
+        y_vec = np.zeros((len(y), self.y_dim), dtype=np.float)
+        for i, label in enumerate(y):
+            y_vec[i,y[i]] = 1.0
+
+        return X/255.,y_vec
