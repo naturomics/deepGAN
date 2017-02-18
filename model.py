@@ -9,12 +9,84 @@ from utils import *
 
 
 class deepGAN(object):
-    def __init__():
-        self.z_dim
+    def __init__(self, sess, input_height=108, input_width=108, is_crop=True,
+                 batch_size=64, sample_num = 64, output_height=64, output_width=64,
+                 y_dim=None, z_dim=100, gf_dim=64, df_dim=64,
+                 gfc_dim=1024, dfc_dim=1024, c_dim=3, dataset_name='default',
+                 input_fname_pattern='*.jpg', checkpoint_dir=None, sample_dir=None):
+        """
 
-    class generator:
-        def __init__(self, z, y, name='generator'):
-            pass
+        Args:
+            sess: TensorFlow session
+            batch_size: The size of batch. Should be specified before training.
+            y_dim: (optional) Dimension of dim for y. [None]
+            z_dim: (optional) Dimension of dim for Z. [100]
+            gf_dim: (optional) Dimension of gen filters in first conv layer. [64]
+            df_dim: (optional) Dimension of discrim filters in first conv layer. [64]
+            gfc_dim: (optional) Dimension of gen units for for fully connected layer. [1024]
+            dfc_dim: (optional) Dimension of discrim units for fully connected layer. [1024]
+            c_dim: (optional) Dimension of image color. For grayscale input, set to 1. [3]
+        """
+        self.sess = sess
+        self.is_crop = is_crop
+        self.is_grayscale = (c_dim == 1)
+        self.batch_size = batch_size
+        self.sample_num = sample_num
+
+        self.input_height = input_height
+        self.input_width = input_width
+        self.output_height = output_height
+        self.output_width = output_width
+
+        self.y_dim = y_dim
+        self.z_dim = z_dim
+
+        self.gf_dim = gf_dim
+        self.df_dim = df_dim
+
+        self.gfc_dim = gfc_dim
+        self.dfc_dim = dfc_dim
+
+        self.c_dim = c_dim
+
+        self.d_bn1 = batch_norm(name='d_bn1')
+        self.d_bn2 = batch_norm(name='d_bn2')
+
+        self.g_bn0 = batch_norm(name='g_bn0')
+        self.g_bn1 = batch_norm(name='g_bn1')
+        self.g_bn2 = batch_norm(name='g_bn2')
+
+        self.dataset_name = dataset_name
+        self.input_fname_pattern = input_fname_pattern
+        self.checkpoint_dir = checkpoint_dir
+        self.build_model()
+
+    def generator(self, z, y, name='generator'):
+            with tf.variable_scope(name) as scope:
+                s_h,s_w =self.output_height,self.output_width
+                s_h2, s_h4 = int(s_h/2), int(s_h/4)
+                s_w2, s_w4 = int(s_w/2), int(s_w/4)
+
+                # yb = tf.expand_dims(tf.expand_dims(y, 1),2)
+                yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
+                z = concat([z, y], 1)
+
+                h0 = tf.nn.relu(
+                    self.g_bn0(linear(z, self.gfc_dim, 'g_h0_lin')))
+                h0 = concat([h0, y], 1)
+
+                h1 = tf.nn.relu(self.g_bn1(
+                    linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin')))
+                h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
+
+                h1 = conv_cond_concat(h1, yb)
+
+                h2 = tf.nn.relu(self.g_bn2(deconv2d(h1,
+                                                    [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name='g_h2')))
+                h2 = conv_cond_concat(h2, yb)
+
+                return tf.nn.sigmoid(
+                    deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name='g_h3'))
 
     def build_model(self):
         self.y = tf.placeholder(tf.float32, [self.batch_size, self.y_dim], name='y')
@@ -23,14 +95,14 @@ class deepGAN(object):
             self.sample_inputs = tf.placeholder(
                 tf.float32, [self.sample_num] + image_dims, name='sample_inputs')
 
-            #inputs = self.inputs
-            #sample_inputs = self.sample_inputs
+            inputs = self.inputs
+            sample_inputs = self.sample_inputs
 
             self.z = tf.placeholder(tf.float32, [None, self.z_dim], name='z')
             self.z_sum = histogram_summary("z", self.z)
 
-            self.G1 = deepGAN.generator(self.z, self.y, name='G1')
-            self.G2 = deepGAN.generator(self.z, self.y, name='G2')
+            self.G1 = self.generator(self.z, self.y, name='G1')
+            self.G2 = self.generator(self.z, self.y, name='G2')
             self.D, self.D_logits = self.discriminator(input, self.y, reuser=False)
 
             self.sampler = self.sampler(self.z, self.y)
@@ -279,3 +351,34 @@ class deepGAN(object):
             y_vec[i,y[i]] = 1.0
 
         return X/255.,y_vec
+
+    @property
+    def model_dir(self):
+        return "{}_{}_{}_{}".format(
+            self.dataset_name, self.batch_size,
+            self.output_height, self.output_width)
+
+    def save(self, checkpoint_dir, step):
+        model_name = "DCGAN.model"
+        checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
+
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+
+        self.saver.save(self.sess,
+                        os.path.join(checkpoint_dir, model_name),
+                        global_step=step)
+
+    def load(self, checkpoint_dir):
+        print(" [*] Reading checkpoints...")
+        checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
+
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
+            print(" [*] Success to read {}".format(ckpt_name))
+            return True
+        else:
+            print(" [*] Failed to find a checkpoint")
+            return False
