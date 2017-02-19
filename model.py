@@ -294,8 +294,9 @@ class deepGAN(object):
                             }
                         )
                         save_images(samples, [8, 8],
-                                    './{}/train_generator{:01d}_{:02d}_{:04d}.png'.format(
-                                        config.sample_dir, generator, epoch, idx
+                                    './{}/train_g{:01d}theta{:02d}_{:02d}_{:04d}.png'.format(
+                                        config.sample_dir, generator,
+                                        str(self.theta).replace('.', ''), epoch, idx
                                     ))
                         print("[Sampled] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
 
