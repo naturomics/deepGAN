@@ -1,5 +1,5 @@
 """
-Some codes from https://github.com/Newmu/dcgan_code
+Some codes from https://github.com/Newmu/deepgan_code
 """
 from __future__ import division
 import math
@@ -56,11 +56,11 @@ def center_crop(x, crop_h, crop_w,
   return scipy.misc.imresize(
       x[j:j+crop_h, i:i+crop_w], [resize_h, resize_w])
 
-def transform(image, input_height, input_width, 
+def transform(image, input_height, input_width,
               resize_height=64, resize_width=64, is_crop=True):
   if is_crop:
     cropped_image = center_crop(
-      image, input_height, input_width, 
+      image, input_height, input_width,
       resize_height, resize_width)
   else:
     cropped_image = scipy.misc.imresize(image, [resize_height, resize_width])
@@ -102,8 +102,8 @@ def to_json(output_path, *layers):
 
         lines += """
           var layer_%s = {
-            "layer_type": "fc", 
-            "sy": 1, "sx": 1, 
+            "layer_type": "fc",
+            "sy": 1, "sx": 1,
             "out_sx": 1, "out_sy": 1,
             "stride": 1, "pad": 0,
             "out_depth": %s, "in_depth": %s,
@@ -119,7 +119,7 @@ def to_json(output_path, *layers):
 
         lines += """
           var layer_%s = {
-            "layer_type": "deconv", 
+            "layer_type": "deconv",
             "sy": 5, "sx": 5,
             "out_sx": %s, "out_sy": %s,
             "stride": 2, "pad": 1,
@@ -149,16 +149,16 @@ def make_gif(images, fname, duration=2, true_image=False):
   clip = mpy.VideoClip(make_frame, duration=duration)
   clip.write_gif(fname, fps = len(images) / duration)
 
-def visualize(sess, dcgan, config, option):
+def visualize(sess, deepgan, config, option):
   if option == 0:
-    z_sample = np.random.uniform(-0.5, 0.5, size=(config.batch_size, dcgan.z_dim))
-    samples = sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample})
+    z_sample = np.random.uniform(-0.5, 0.5, size=(config.batch_size, deepgan.z_dim))
+    samples = sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample})
     save_images(samples, [8, 8], './samples/test_%s.png' % strftime("%Y-%m-%d %H:%M:%S", gmtime()))
   elif option == 1:
     values = np.arange(0, 1, 1./config.batch_size)
     for idx in xrange(100):
       print(" [*] %d" % idx)
-      z_sample = np.zeros([config.batch_size, dcgan.z_dim])
+      z_sample = np.zeros([config.batch_size, deepgan.z_dim])
       for kdx, z in enumerate(z_sample):
         z[idx] = values[kdx]
 
@@ -167,18 +167,18 @@ def visualize(sess, dcgan, config, option):
         y_one_hot = np.zeros((config.batch_size, 10))
         y_one_hot[np.arange(config.batch_size), y] = 1
 
-        samples = sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample, dcgan.y: y_one_hot})
+        samples = sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample, deepgan.y: y_one_hot})
       else:
-        samples = sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample})
+        samples = sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample})
 
       save_images(samples, [8, 8], './samples/test_arange_%s.png' % (idx))
   elif option == 2:
     values = np.arange(0, 1, 1./config.batch_size)
     for idx in [random.randint(0, 99) for _ in xrange(100)]:
       print(" [*] %d" % idx)
-      z = np.random.uniform(-0.2, 0.2, size=(dcgan.z_dim))
+      z = np.random.uniform(-0.2, 0.2, size=(deepgan.z_dim))
       z_sample = np.tile(z, (config.batch_size, 1))
-      #z_sample = np.zeros([config.batch_size, dcgan.z_dim])
+      #z_sample = np.zeros([config.batch_size, deepgan.z_dim])
       for kdx, z in enumerate(z_sample):
         z[idx] = values[kdx]
 
@@ -187,9 +187,9 @@ def visualize(sess, dcgan, config, option):
         y_one_hot = np.zeros((config.batch_size, 10))
         y_one_hot[np.arange(config.batch_size), y] = 1
 
-        samples = sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample, dcgan.y: y_one_hot})
+        samples = sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample, deepgan.y: y_one_hot})
       else:
-        samples = sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample})
+        samples = sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample})
 
       try:
         make_gif(samples, './samples/test_gif_%s.gif' % (idx))
@@ -199,11 +199,11 @@ def visualize(sess, dcgan, config, option):
     values = np.arange(0, 1, 1./config.batch_size)
     for idx in xrange(100):
       print(" [*] %d" % idx)
-      z_sample = np.zeros([config.batch_size, dcgan.z_dim])
+      z_sample = np.zeros([config.batch_size, deepgan.z_dim])
       for kdx, z in enumerate(z_sample):
         z[idx] = values[kdx]
 
-      samples = sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample})
+      samples = sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample})
       make_gif(samples, './samples/test_gif_%s.gif' % (idx))
   elif option == 4:
     image_set = []
@@ -211,10 +211,10 @@ def visualize(sess, dcgan, config, option):
 
     for idx in xrange(100):
       print(" [*] %d" % idx)
-      z_sample = np.zeros([config.batch_size, dcgan.z_dim])
+      z_sample = np.zeros([config.batch_size, deepgan.z_dim])
       for kdx, z in enumerate(z_sample): z[idx] = values[kdx]
 
-      image_set.append(sess.run(dcgan.sampler, feed_dict={dcgan.z: z_sample}))
+      image_set.append(sess.run(deepgan.sampler, feed_dict={deepgan.z: z_sample}))
       make_gif(image_set[-1], './samples/test_gif_%s.gif' % (idx))
 
     new_image_set = [merge(np.array([images[idx] for images in image_set]), [10, 10]) \
