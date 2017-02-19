@@ -213,7 +213,10 @@ class deepGAN(object):
                       [d2_optim, g2_optim, self.d2_loss,
                        self.g2_loss, self.d2_sum,
                        self.g2_sum, self.g2_sampler]]
-        errG = 100
+
+        avg_errG = [100, 100]
+        theta = 0.4
+
         for epoch in xrange(config.epoch):
             batch_idxs = min(len(data_X), config.train_size) // config.batch_size
             for idx in xrange(0, batch_idxs):
@@ -230,8 +233,11 @@ class deepGAN(object):
                         self.z: batch_z,
                         self.y: batch_labels
                     })
-                    if errG > err_g:
-                        errG = err_g
+                    avg_errG[generator-1] = theta * avg_errG[generator-1] + (1 - theta) * err_g
+                    if avg_errG[generator-1] < avg_errG[generator%2]:
+                        # errG = err_g
+                        print("skip for generator {} in the epoch {}, {} batch".format(generator, epoch, idx))
+                        generator += 1
                         continue
 
                     # Update D network
@@ -272,9 +278,9 @@ class deepGAN(object):
                     })
 
                     counter += 1
-                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f"
+                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, errG1:%.8f, errG2:%.8f"
                           % (generator, epoch, idx, batch_idxs,
-                             time.time() - start_time, errD, err_g))
+                             time.time() - start_time, errD, err_g, avg_errG[0], avg_errG[1]))
 
                     if np.mod(counter, 100) == 1:
                         samples, d_loss, g_loss = self.sess.run(
