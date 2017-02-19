@@ -393,7 +393,7 @@ class deepGAN(object):
             self.output_height, self.output_width)
 
     def save(self, checkpoint_dir, step):
-        model_name = "deep-GAN.model" + str(self.theta).replace('.', '')
+        model_name = "deep-GAN.model-theta" + str(self.theta).replace('.', '')
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
 
         if not os.path.exists(checkpoint_dir):
