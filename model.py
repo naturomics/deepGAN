@@ -213,6 +213,7 @@ class deepGAN(object):
                       [d2_optim, g2_optim, self.d2_loss,
                        self.g2_loss, self.d2_sum,
                        self.g2_sum, self.g2_sampler]]
+        errG = 100
         for epoch in xrange(config.epoch):
             batch_idxs = min(len(data_X), config.train_size) // config.batch_size
             for idx in xrange(0, batch_idxs):
@@ -223,6 +224,16 @@ class deepGAN(object):
                 ## the key algorithms for deep GAN ##
                 generator = 1
                 for d_optim, g_optim, d_loss, g_loss, d_sum, g_sum, sampler in generators:
+                    # make the better generator as a guide of the worse
+                    # generator, until the bad guy perform better than the former
+                    err_g = g_loss.eval({
+                        self.z: batch_z,
+                        self.y: batch_labels
+                    })
+                    if errG > err_g:
+                        errG = err_g
+                        continue
+
                     # Update D network
                     _, summary_str = self.sess.run([d_optim, d_sum],
                                                    feed_dict={
@@ -254,20 +265,16 @@ class deepGAN(object):
 #                        self.z: batch_z,
 #                        self.y: batch_labels
 #                    })
-#                    errD_real = self.d_loss_real.eval({
-#                        self.inputs: batch_images,
-#                        self.y: batch_labels
-#                    })
-#                    errG = g_loss.eval({
-#                        self.z: batch_z,
-#                        self.y: batch_labels
-#                    })
+                    errD = d_loss.eval({
+                        self.inputs: batch_images,
+                        self.z: batch_z,
+                        self.y: batch_labels
+                    })
 
                     counter += 1
-#                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f"
-#                          % (generator, epoch, idx, batch_idxs,
-#                             time.time() - start_time, errD_g2asFake + errD_g1asFake + errD_real, errG))
-                    generator += 1
+                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f"
+                          % (generator, epoch, idx, batch_idxs,
+                             time.time() - start_time, errD, err_g))
 
                     if np.mod(counter, 100) == 1:
                         samples, d_loss, g_loss = self.sess.run(
@@ -279,13 +286,15 @@ class deepGAN(object):
                             }
                         )
                         save_images(samples, [8, 8],
-                                    './{}/train_g{:02d}_{:02d}_{:04d}.png'.format(
+                                    './{}/train_generator{:01d}_{:02d}_{:04d}.png'.format(
                                         config.sample_dir, generator, epoch, idx
                                     ))
                         print("[Sampled] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
 
                     if np.mod(counter, 500) == 2:
                         self.save(config.checkpoint_dir, counter)
+
+                    generator += 1
 
     def discriminator(self, image, y=None, reuse=False):
         with tf.variable_scope("discriminator") as scope:
