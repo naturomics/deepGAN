@@ -192,7 +192,10 @@ class deepGAN(object):
             self.z_sum, self.d_sum,
             self.d_loss_real_sum,
             self.d2_loss_sum])
-        self.writer = SummaryWriter("./logs", self.sess.graph)
+
+        self.theta = 0.4
+
+        self.writer = SummaryWriter("./logs/theta" + str(self.theta).replace('.', ''), self.sess.graph)
 
         sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
 
@@ -215,7 +218,6 @@ class deepGAN(object):
                        self.g2_sum, self.g2_sampler]]
 
         avg_errG = [100, 100]
-        theta = 0.4
 
         for epoch in xrange(config.epoch):
             batch_idxs = min(len(data_X), config.train_size) // config.batch_size
@@ -233,7 +235,7 @@ class deepGAN(object):
                         self.z: batch_z,
                         self.y: batch_labels
                     })
-                    avg_errG[generator-1] = theta * avg_errG[generator-1] + (1 - theta) * err_g
+                    avg_errG[generator-1] = self.theta * avg_errG[generator-1] + (1 - self.theta) * err_g
                     if avg_errG[generator-1] < avg_errG[generator%2]:
                         # errG = err_g
                         print("skip for generator {} in the epoch {}, {} batch".format(generator, epoch, idx))
@@ -391,7 +393,7 @@ class deepGAN(object):
             self.output_height, self.output_width)
 
     def save(self, checkpoint_dir, step):
-        model_name = "DCGAN.model"
+        model_name = "deep-GAN.model" + str(self.theta).replace('.', '')
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
 
         if not os.path.exists(checkpoint_dir):
