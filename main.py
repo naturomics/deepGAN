@@ -89,7 +89,7 @@ def main(_):
     #                 [dcgan.h4_w, dcgan.h4_b, None])
 
     # Below is codes for visualization
-    OPTION = 3
+    OPTION = 1
     visualize(sess, deepgan, FLAGS, OPTION)
 
 if __name__ == '__main__':
