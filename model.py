@@ -1,6 +1,7 @@
 from __future__ import division
 import os
 import time
+import random
 import numpy as np
 import tensorflow as tf
 
@@ -232,6 +233,7 @@ class deepGAN(object):
 
                 ## the key algorithms for deep GAN ##
                 generator = 1
+                random.shuffle(generators)
                 for d_optim, g_optim, d_loss, g_loss, d_sum, g_sum, sampler in generators:
                     # make the better generator as a guide of the worse
                     # generator, until the bad guy perform better than the former
