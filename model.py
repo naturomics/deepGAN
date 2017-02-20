@@ -141,8 +141,9 @@ class deepGAN(object):
         self.g1_loss = self.d_loss_g1asReal
         self.g2_loss = self.d_loss_g2asReal
 
-        self.d1_loss = self.d_loss_real + self.d_loss_g1asFake + self.d_loss_g2asReal
-        self.d2_loss = self.d_loss_real + self.d_loss_g1asReal + self.d_loss_g2asFake
+        self.beta = 0.8
+        self.d1_loss = self.beta * self.d_loss_real + self.d_loss_g1asFake + (1 - self.beta) * self.d_loss_g2asReal
+        self.d2_loss = self.beta * self.d_loss_real + (1 - self.beta) * self.d_loss_g1asReal + self.d_loss_g2asFake
 
         self.d_loss_real_sum = scalar_summary("d_loss_real", self.d_loss_real)
         self.d_loss_g1asFake_sum = scalar_summary("d_loss_g1asFake", self.d_loss_g1asFake)
@@ -195,7 +196,10 @@ class deepGAN(object):
 
         self.theta = 0.4
 
-        self.writer = SummaryWriter("./logs/theta" + str(self.theta).replace('.', ''), self.sess.graph)
+        self.writer = SummaryWriter("./logs/theta" +
+                                    str(self.theta).replace('.', '') + "beta" +
+                                    str(self.beta).replace('.', ''),
+                                    self.sess.graph)
 
         sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
 
@@ -294,9 +298,11 @@ class deepGAN(object):
                             }
                         )
                         save_images(samples, [8, 8],
-                                    './{}/train_g{:01d}theta{:02d}_{:02d}_{:04d}.png'.format(
+                                    './{}/train_g{:01d}theta{:02d}beta{:02d}_{:02d}_{:04d}.png'.format(
                                         config.sample_dir, generator,
-                                        int(str(self.theta).replace('.', '')), epoch, idx
+                                        int(str(self.theta).replace('.', '')),
+                                        int(str(self.beta).replace('.', '')),
+                                        epoch, idx
                                     ))
                         print("[Sampled] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
 
@@ -394,7 +400,7 @@ class deepGAN(object):
             self.output_height, self.output_width)
 
     def save(self, checkpoint_dir, step):
-        model_name = "deep-GAN.model-theta" + str(self.theta).replace('.', '')
+        model_name = "deep-GAN.model-theta" + str(self.theta).replace('.', '') + "beta" + str(self.beta).replace('.', '')
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
 
         if not os.path.exists(checkpoint_dir):
