@@ -271,14 +271,14 @@ class deepGAN(object):
                     })
                     self.writer.add_summary(summary_str, counter)
 
-#                    errD_g1asFake = self.d_loss_g1asFake.eval({
-#                        self.z: batch_z,
-#                        self.y: batch_labels
-#                    })
-#                    errD_g2asFake = self.d_loss_g2asFake.eval({
-#                        self.z: batch_z,
-#                        self.y: batch_labels
-#                    })
+                    # errD_g1asFake = self.d_loss_g1asFake.eval({
+                    #    self.z: batch_z,
+                    #    self.y: batch_labels
+                    # })
+                    # errD_g2asFake = self.d_loss_g2asFake.eval({
+                    #       self.z: batch_z,
+                    #       self.y: batch_labels
+                    # })
                     errD = d_loss.eval({
                         self.inputs: batch_images,
                         self.z: batch_z,
@@ -357,6 +357,19 @@ class deepGAN(object):
             h2 = conv_cond_concat(h2, yb)
 
             return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name=name+'_h3'))
+
+    def transmitter(self, x, name="transmitter", reuse=False):
+        with tf.variable_scope(name) as scope:
+            if reuse:
+                scope.reuse_variables()
+
+            h0 = lrelu(conv2d(x, self.df_dim, name='t_h0_conv'))
+            h1 = lrelu(self.t_bn1(conv2d(h0, self.df_dim*2, name='t_h1_conv')))
+            h2 = lrelu(self.t_bn2(conv2d(h1, self.df_dim*4, name='t_h2_conv')))
+            h3 = lrelu(self.t_bn3(conv2d(h2, self.df_dim*8, name='t_h3_conv')))
+            h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, name='t_h3_lin')
+
+            return(tf.nn.sigmoid(h4), h4)
 
     def load_mnist(self):
         data_dir = os.path.join("./data", self.dataset_name)
