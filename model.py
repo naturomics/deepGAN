@@ -3,6 +3,8 @@ import os
 import time
 import random
 import numpy as np
+from operator import mul
+from functools import reduce
 import tensorflow as tf
 
 from ops import *
@@ -110,7 +112,28 @@ class deepGAN(object):
 
         self.G1 = self.generator(self.z, self.y, name='G1')
         self.G2 = self.generator(self.z, self.y, name='G2')
+        print('G dims:')
+        print(self.G1.get_shape())
         self.D, self.D_logits = self.discriminator(inputs, self.y, reuse=False)
+
+        self.T, self.T_logits = self.transmitter(self.G1)
+        print('T dims:')
+        print(self.T.get_shape())
+        print('weights dims:')
+        print(self.weights['w_t_conv0'])
+        print(self.weights['w_t_conv1'])
+        print(self.weights['w_t_conv2'])
+        print(self.weights['w_t_conv3'])
+        print(self.weights['w_t_fc'])
+        print('biases dims:')
+        print(self.biases['b_t_conv0'])
+        print(self.biases['b_t_conv1'])
+        print(self.biases['b_t_conv2'])
+        print(self.biases['b_t_conv3'])
+        print(self.biases['b_t_fc'])
+        data_pars = np.random.normal(0, 0.01, (64, 6401536))
+        self.evaluator(self.sess, data_pars)
+        exit()
 
         self.g1_sampler = self.sampler(self.z, self.y, name="G1")
         self.g2_sampler = self.sampler(self.z, self.y, name="G2")
@@ -164,7 +187,8 @@ class deepGAN(object):
         self.saver = tf.train.Saver()
 
     def train(self, config):
-        data_X, data_y = self.load_mnist()
+        data_pars = np.random.normal(0, 0.01, (64, 6401536))
+        data_cost = np.random.random(size=(64,1))
 
         d1_optim = tf.train.AdamOptimizer(config.learning_rate,
                                           beta1=config.beta1).minimize(self.d1_loss, var_list=self.d1_vars)
@@ -373,7 +397,7 @@ class deepGAN(object):
                 'w_t_conv3': tf.placeholder(
                     tf.float32,
                     [k_h, k_w, self.df_dim * 4, self.df_dim * 8]),
-                'w_t_fc': tf.placeholder(tf.float32)
+                'w_t_fc': tf.placeholder(tf.float32, [2048, self.dfc_dim])
             }
             self.biases = {
                 'b_t_conv0': tf.placeholder(tf.float32, [self.df_dim]),
@@ -383,18 +407,65 @@ class deepGAN(object):
                 'b_t_fc': tf.placeholder(tf.float32, [self.dfc_dim])
             }
 
+            x = tf.reshape(x, shape=[-1, self.input_height, self.input_width, 1])
             h0 = lrelu(conv2d_t(x, self.weights['w_t_conv0'],
                                 self.biases['b_t_conv0']))
-            h1 = lrelu(conv2d_t(x, self.weights['w_t_conv1'],
+            h1 = lrelu(conv2d_t(h0, self.weights['w_t_conv1'],
                                 self.biases['b_t_conv1']))
-            h2 = lrelu(conv2d_t(x, self.weights['w_t_conv2'],
+            h2 = lrelu(conv2d_t(h1, self.weights['w_t_conv2'],
                                 self.biases['b_t_conv2']))
-            h3 = lrelu(conv2d_t(x, self.weights['w_t_conv3'],
+            h3 = lrelu(conv2d_t(h2, self.weights['w_t_conv3'],
                                 self.biases['b_t_conv3']))
             h4 = tf.matmul(tf.reshape(h3, [self.batch_size, -1]),
                            self.weights['w_t_fc']) + self.biases['b_t_fc']
 
             return(tf.nn.sigmoid(h4), h4)
+
+    def evaluator(self, sess, pars):
+        data_X, data_y = self.load_mnist()
+        w_cuts = [reduce(mul, self.weights[name].get_shape())
+                  for name in ['w_t_conv0', 'w_t_conv1',
+                               'w_t_conv2', 'w_t_conv3', 'w_t_fc']]
+        b_cuts = [reduce(mul, self.biases[name].get_shape())
+                  for name in ['b_t_conv0', 'b_t_conv1',
+                               'b_t_conv2', 'b_t_conv3', 'b_t_fc']]
+        cuts = np.cumsum([w_cuts, b_cuts])
+        for par in pars:
+            T, T_logits = sess.run(self.transmitter(data_X), feed_dict={
+                self.weights['w_t_conv0']:
+                tf.reshape(par[:cuts[0]],
+                           self.weights['w_t_conv0'].get_shape()),
+                self.weights['w_t_conv1']:
+                tf.reshape(par[cuts[0]:cuts[1]],
+                           self.weights['w_t_conv1'].get_shape()),
+                self.weights['w_t_conv2']:
+                tf.reshape(par[cuts[1]:cuts[2]],
+                           self.weights['w_t_conv2'].get_shape()),
+                self.weights['w_t_conv3']:
+                tf.reshape(par[cuts[2]:cuts[3]],
+                           self.weights['w_t_conv3'].get_shape()),
+                self.weights['w_t_fc']:
+                tf.reshape(par[cuts[3]:cuts[4]],
+                           self.weights['w_t_fc'].get_shape()),
+                self.biases['b_t_conv0']:
+                tf.reshape(par[cuts[4]:cuts[5]],
+                           self.biases['b_t_conv0'].get_shape()),
+                self.biases['b_t_conv1']:
+                tf.reshape(par[cuts[5]:cuts[6]],
+                           self.biases['b_t_conv1'].get_shape()),
+                self.biases['b_t_conv2']:
+                tf.reshape(par[cuts[6]:cuts[7]],
+                           self.biases['b_t_conv2'].get_shape()),
+                self.biases['b_t_conv3']:
+                tf.reshape(par[cuts[7]:cuts[8]],
+                           self.biases['b_t_conv3'].get_shape()),
+                self.biases['b_t_fc']:
+                tf.reshape(par[cuts[8]:cuts[9]],
+                           self.biases['b_t_fc'].get_shape())
+            })
+            cost = 0  # use the evaluator to calculate the loss
+
+        return(cost)
 
     def load_mnist(self):
         data_dir = os.path.join("./data", self.dataset_name)
