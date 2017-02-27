@@ -358,16 +358,41 @@ class deepGAN(object):
 
             return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name=name+'_h3'))
 
-    def transmitter(self, x, name="transmitter", reuse=False):
-        with tf.variable_scope(name) as scope:
-            if reuse:
-                scope.reuse_variables()
+    def transmitter(self, x, k_h=5, k_w=5, name="transmitter"):
+        with tf.variable_scope(name):
+            self.weights = {
+                'w_t_conv0': tf.placeholder(
+                    tf.float32,
+                    [k_h, k_w, x.get_shape()[-1], self.df_dim]),
+                'w_t_conv1': tf.placeholder(
+                    tf.float32,
+                    [k_h, k_w, self.df_dim, self.df_dim * 2]),
+                'w_t_conv2': tf.placeholder(
+                    tf.float32,
+                    [k_h, k_w, self.df_dim * 2, self.df_dim * 4]),
+                'w_t_conv3': tf.placeholder(
+                    tf.float32,
+                    [k_h, k_w, self.df_dim * 4, self.df_dim * 8]),
+                'w_t_fc': tf.placeholder(tf.float32)
+            }
+            self.biases = {
+                'b_t_conv0': tf.placeholder(tf.float32, [self.df_dim]),
+                'b_t_conv1': tf.placeholder(tf.float32, [self.df_dim * 2]),
+                'b_t_conv2': tf.placeholder(tf.float32, [self.df_dim * 4]),
+                'b_t_conv3': tf.placeholder(tf.float32, [self.df_dim * 8]),
+                'b_t_fc': tf.placeholder(tf.float32, [self.dfc_dim])
+            }
 
-            h0 = lrelu(conv2d(x, self.df_dim, name='t_h0_conv'))
-            h1 = lrelu(self.t_bn1(conv2d(h0, self.df_dim*2, name='t_h1_conv')))
-            h2 = lrelu(self.t_bn2(conv2d(h1, self.df_dim*4, name='t_h2_conv')))
-            h3 = lrelu(self.t_bn3(conv2d(h2, self.df_dim*8, name='t_h3_conv')))
-            h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, name='t_h3_lin')
+            h0 = lrelu(conv2d_t(x, self.weights['w_t_conv0'],
+                                self.biases['b_t_conv0']))
+            h1 = lrelu(conv2d_t(x, self.weights['w_t_conv1'],
+                                self.biases['b_t_conv1']))
+            h2 = lrelu(conv2d_t(x, self.weights['w_t_conv2'],
+                                self.biases['b_t_conv2']))
+            h3 = lrelu(conv2d_t(x, self.weights['w_t_conv3'],
+                                self.biases['b_t_conv3']))
+            h4 = tf.matmul(tf.reshape(h3, [self.batch_size, -1]),
+                           self.weights['w_t_fc']) + self.biases['b_t_fc']
 
             return(tf.nn.sigmoid(h4), h4)
 
