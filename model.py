@@ -1,7 +1,7 @@
 from __future__ import division
 import os
 import time
-import random
+import math
 import numpy as np
 from operator import mul
 from functools import reduce
@@ -112,28 +112,7 @@ class deepGAN(object):
 
         self.G1 = self.generator(self.z, self.y, name='G1')
         self.G2 = self.generator(self.z, self.y, name='G2')
-        print('G dims:')
-        print(self.G1.get_shape())
         self.D, self.D_logits = self.discriminator(inputs, self.y, reuse=False)
-
-        self.T, self.T_logits = self.transmitter(self.G1)
-        print('T dims:')
-        print(self.T.get_shape())
-        print('weights dims:')
-        print(self.weights['w_t_conv0'])
-        print(self.weights['w_t_conv1'])
-        print(self.weights['w_t_conv2'])
-        print(self.weights['w_t_conv3'])
-        print(self.weights['w_t_fc'])
-        print('biases dims:')
-        print(self.biases['b_t_conv0'])
-        print(self.biases['b_t_conv1'])
-        print(self.biases['b_t_conv2'])
-        print(self.biases['b_t_conv3'])
-        print(self.biases['b_t_fc'])
-        data_pars = np.random.normal(0, 0.01, (64, 6401536))
-        self.evaluator(self.sess, data_pars)
-        exit()
 
         self.g1_sampler = self.sampler(self.z, self.y, name="G1")
         self.g2_sampler = self.sampler(self.z, self.y, name="G2")
@@ -187,17 +166,19 @@ class deepGAN(object):
         self.saver = tf.train.Saver()
 
     def train(self, config):
-        data_pars = np.random.normal(0, 0.01, (64, 6401536))
-        data_cost = np.random.random(size=(64,1))
+        self.data_X, self.data_y = self.load_mnist()
+        self.data_X = self.data_X.astype(np.float32)
+        self.data_y = self.data_y.astype(np.float32)
 
-        d1_optim = tf.train.AdamOptimizer(config.learning_rate,
+        data_pars = np.float32(np.random.normal(0, 0.01, (self.batch_size, 6401536)))
+        data_cost = np.float32(np.random.random(size=(self.batch_size, 1)))
+        #data_pars = tf.truncated_normal_initializer(stddev=0.01, seed=1178)((self.batch_size, 6401536))
+        #data_cost = tf.random_uniform_initializer(maxval=1, seed=1178)((self.batch_size, 1))
+
+        d_optim = tf.train.AdamOptimizer(config.learning_rate,
                                           beta1=config.beta1).minimize(self.d1_loss, var_list=self.d1_vars)
-        d2_optim = tf.train.AdamOptimizer(config.learning_rate,
-                                          beta1=config.beta1).minimize(self.d2_loss, var_list=self.d2_vars)
-        g1_optim = tf.train.AdamOptimizer(config.learning_rate,
+        g_optim = tf.train.AdamOptimizer(config.learning_rate,
                                           beta1=config.beta1).minimize(self.g1_loss, var_list=self.g1_vars)
-        g2_optim = tf.train.AdamOptimizer(config.learning_rate,
-                                          beta1=config.beta1).minimize(self.g2_loss, var_list=self.g2_vars)
 
         try:
             tf.global_variables_initializer().run()
@@ -211,25 +192,13 @@ class deepGAN(object):
             self.z_sum, self.d_sum,
             self.d_loss_real_sum,
             self.d1_loss_sum])
-        self.g2_sum = tf.summary.merge([
-            self.z_sum, self.d2__sum, self.G2_sum,
-            self.d_loss_g2asFake_sum, self.g2_loss_sum])
-        self.d2_sum = tf.summary.merge([
-            self.z_sum, self.d_sum,
-            self.d_loss_real_sum,
-            self.d2_loss_sum])
 
-        self.theta = 0.4
-
-        self.writer = SummaryWriter("./logs/theta" +
-                                    str(self.theta).replace('.', '') + "beta" +
-                                    str(self.beta).replace('.', ''),
-                                    self.sess.graph)
+        self.writer = SummaryWriter("./logs", self.sess.graph)
 
         sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
 
-        sample_inputs = data_X[0:self.sample_num]
-        sample_labels = data_y[0:self.sample_num]
+        sample_inputs = self.data_X[0:self.sample_num]
+        sample_labels = self.data_y[0:self.sample_num]
 
         counter = 1
         start_time = time.time()
@@ -239,48 +208,38 @@ class deepGAN(object):
         else:
             print(" [!] Load failed...")
 
-        generators = [[d1_optim, g1_optim, self.d1_loss,
-                       self.g1_loss, self.d1_sum,
-                       self.g1_sum, self.g1_sampler],
-                      [d2_optim, g2_optim, self.d2_loss,
-                       self.g2_loss, self.d2_sum,
-                       self.g2_sum, self.g2_sampler]]
+        print('transmitter in train fun')
+        self.transmitter(self.data_X)
+        for cycle in xrange(config.cycle):
+            # use T net with generated pars to calculate true loss,
+            # and update new (pars, cost) pair
+            data_cost[-self.batch_size:, ] = self.evaluator(
+                self.sess, data_pars[-self.batch_size:, ])
 
-        avg_errG = [100, 100]
+            w_cuts = [reduce(mul, self.weights[name].get_shape()) for name in self.weights]
+            b_cuts = [reduce(mul, self.biases[name].get_shape()) for name in self.biases]
+            cuts = np.cumsum([w_cuts, b_cuts])
 
-        for epoch in xrange(config.epoch):
-            batch_idxs = min(len(data_X), config.train_size) // config.batch_size
-            for idx in xrange(0, batch_idxs):
-                batch_images = data_X[idx * config.batch_size:(idx + 1) * config.batch_size]
-                batch_labels = data_y[idx * config.batch_size:(idx + 1) * config.batch_size]
-                batch_z = np.random.uniform(-1, 1, [config.batch_size, self.z_dim]).astype(np.float32)
-
-                ## the key algorithms for deep GAN ##
-                generator = 1
-                random.shuffle(generators)
-                for d_optim, g_optim, d_loss, g_loss, d_sum, g_sum, sampler in generators:
-                    # make the better generator as a guide of the worse
-                    # generator, until the bad guy perform better than the former
-                    err_g = g_loss.eval({
-                        self.z: batch_z,
-                        self.y: batch_labels
-                    })
-                    avg_errG[generator-1] = self.theta * avg_errG[generator-1] + (1 - self.theta) * err_g
-                    if avg_errG[generator-1] < avg_errG[generator%2]:
-                        # errG = err_g
-                        print("skip for generator {} in the epoch {}, {} batch".format(generator, epoch, idx))
-                        generator += 1
-                        continue
+            self.output_height = math.ceil(math.sqrt(float(int(cuts[-1])) / float(int(3))))
+            self.output_width = self.output_height
+            print('output height:')
+            print(self.output_height)
+            exit()
+            for epoch in xrange(config.epoch):
+                batch_idxs = min(len(data_pars), config.train_size) // config.batch_size
+                for idx in xrange(0, batch_idxs):
+                    batch_pars = data_pars[idx * config.batch_size:(idx + 1) * config.batch_size]
+                    batch_cost = data_cost[idx * config.batch_size:(idx + 1) * config.batch_size]
+                    batch_z = np.random.uniform(-1, 1, [config.batch_size, self.z_dim]).astype(np.float32)
 
                     # Update D network
                     _, summary_str = self.sess.run([d_optim, d_sum],
-                                                   feed_dict={
-                                                       self.inputs: batch_images,
-                                                       self.z: batch_z,
-                                                       self.y: batch_labels
-                                                   })
+                                                    feed_dict={
+                                                        self.inputs: batch_images,
+                                                        self.z: batch_z,
+                                                        self.y: batch_labels
+                                                    })
                     self.writer.add_summary(summary_str, counter)
-
                     # Update G network
                     _, summary_str = self.sess.run([g_optim, g_sum], feed_dict={
                         self.z: batch_z,
@@ -294,7 +253,6 @@ class deepGAN(object):
                         self.y: batch_labels,
                     })
                     self.writer.add_summary(summary_str, counter)
-
                     # errD_g1asFake = self.d_loss_g1asFake.eval({
                     #    self.z: batch_z,
                     #    self.y: batch_labels
@@ -308,12 +266,10 @@ class deepGAN(object):
                         self.z: batch_z,
                         self.y: batch_labels
                     })
-
                     counter += 1
                     print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, errG1:%.8f, errG2:%.8f"
                           % (generator, epoch, idx, batch_idxs,
                              time.time() - start_time, errD, err_g, avg_errG[0], avg_errG[1]))
-
                     if np.mod(counter, 100) == 1:
                         samples, d_loss, g_loss = self.sess.run(
                             [sampler, d_loss, g_loss],
@@ -331,11 +287,8 @@ class deepGAN(object):
                                         epoch, idx
                                     ))
                         print("[Sampled] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
-
-                    if np.mod(counter, 500) == 2:
-                        self.save(config.checkpoint_dir, counter)
-
-                    generator += 1
+                        if np.mod(counter, 500) == 2:
+                            self.save(config.checkpoint_dir, counter)
 
     def discriminator(self, image, y=None, reuse=False):
         with tf.variable_scope("discriminator") as scope:
@@ -387,7 +340,7 @@ class deepGAN(object):
             self.weights = {
                 'w_t_conv0': tf.placeholder(
                     tf.float32,
-                    [k_h, k_w, x.get_shape()[-1], self.df_dim]),
+                    [k_h, k_w, x.shape[-1], self.df_dim]),
                 'w_t_conv1': tf.placeholder(
                     tf.float32,
                     [k_h, k_w, self.df_dim, self.df_dim * 2]),
@@ -416,13 +369,12 @@ class deepGAN(object):
                                 self.biases['b_t_conv2']))
             h3 = lrelu(conv2d_t(h2, self.weights['w_t_conv3'],
                                 self.biases['b_t_conv3']))
-            h4 = tf.matmul(tf.reshape(h3, [self.batch_size, -1]),
+            h4 = tf.matmul(tf.reshape(h3, [len(self.data_X), -1]),
                            self.weights['w_t_fc']) + self.biases['b_t_fc']
 
             return(tf.nn.sigmoid(h4), h4)
 
     def evaluator(self, sess, pars):
-        data_X, data_y = self.load_mnist()
         w_cuts = [reduce(mul, self.weights[name].get_shape())
                   for name in ['w_t_conv0', 'w_t_conv1',
                                'w_t_conv2', 'w_t_conv3', 'w_t_fc']]
@@ -430,37 +382,39 @@ class deepGAN(object):
                   for name in ['b_t_conv0', 'b_t_conv1',
                                'b_t_conv2', 'b_t_conv3', 'b_t_fc']]
         cuts = np.cumsum([w_cuts, b_cuts])
+        print(cuts)
         for par in pars:
-            T, T_logits = sess.run(self.transmitter(data_X), feed_dict={
+            print('transmitter in evaluator')
+            T, T_logits = sess.run(self.transmitter(self.data_X), feed_dict={
                 self.weights['w_t_conv0']:
-                tf.reshape(par[:cuts[0]],
+                np.reshape(par[:cuts[0]],
                            self.weights['w_t_conv0'].get_shape()),
                 self.weights['w_t_conv1']:
-                tf.reshape(par[cuts[0]:cuts[1]],
+                np.reshape(par[cuts[0]:cuts[1]],
                            self.weights['w_t_conv1'].get_shape()),
                 self.weights['w_t_conv2']:
-                tf.reshape(par[cuts[1]:cuts[2]],
+                np.reshape(par[cuts[1]:cuts[2]],
                            self.weights['w_t_conv2'].get_shape()),
                 self.weights['w_t_conv3']:
-                tf.reshape(par[cuts[2]:cuts[3]],
+                np.reshape(par[cuts[2]:cuts[3]],
                            self.weights['w_t_conv3'].get_shape()),
                 self.weights['w_t_fc']:
-                tf.reshape(par[cuts[3]:cuts[4]],
+                np.reshape(par[cuts[3]:cuts[4]],
                            self.weights['w_t_fc'].get_shape()),
                 self.biases['b_t_conv0']:
-                tf.reshape(par[cuts[4]:cuts[5]],
+                np.reshape(par[cuts[4]:cuts[5]],
                            self.biases['b_t_conv0'].get_shape()),
                 self.biases['b_t_conv1']:
-                tf.reshape(par[cuts[5]:cuts[6]],
+                np.reshape(par[cuts[5]:cuts[6]],
                            self.biases['b_t_conv1'].get_shape()),
                 self.biases['b_t_conv2']:
-                tf.reshape(par[cuts[6]:cuts[7]],
+                np.reshape(par[cuts[6]:cuts[7]],
                            self.biases['b_t_conv2'].get_shape()),
                 self.biases['b_t_conv3']:
-                tf.reshape(par[cuts[7]:cuts[8]],
+                np.reshape(par[cuts[7]:cuts[8]],
                            self.biases['b_t_conv3'].get_shape()),
                 self.biases['b_t_fc']:
-                tf.reshape(par[cuts[8]:cuts[9]],
+                np.reshape(par[cuts[8]:cuts[9]],
                            self.biases['b_t_fc'].get_shape())
             })
             cost = 0  # use the evaluator to calculate the loss
