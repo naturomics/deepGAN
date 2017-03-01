@@ -14,27 +14,17 @@ flags.DEFINE_float("beta1", 0.5, "Momentum term of adam [0.5]")
 flags.DEFINE_integer("cycle", 1000, "The size of train images [np.inf]")
 flags.DEFINE_integer("train_size", np.inf, "The size of train images [np.inf]")
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
-flags.DEFINE_integer("input_height", 108, "The size of image to use (will be center cropped). [108]")
-flags.DEFINE_integer("input_width", None, "The size of image to use (will be center cropped). If None, same value as input_height [None]")
-flags.DEFINE_integer("output_height", 64, "The size of the output images to produce [64]")
-flags.DEFINE_integer("output_width", None, "The size of the output images to produce. If None, same value as output_height [None]")
-flags.DEFINE_integer("c_dim", 3, "Dimension of image color. [3]")
+flags.DEFINE_integer("col_dim", 3, "Dimension of image color. [3]")
 flags.DEFINE_string("dataset", "celebA", "The name of dataset [celebA, mnist, lsun]")
 flags.DEFINE_string("input_fname_pattern", "*.jpg", "Glob pattern of filename of input images [*]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint", "Directory name to save the checkpoints [checkpoint]")
 flags.DEFINE_string("sample_dir", "samples", "Directory name to save the image samples [samples]")
 flags.DEFINE_boolean("is_train", False, "True for training, False for testing [False]")
-flags.DEFINE_boolean("is_crop", False, "True for training, False for testing [False]")
 flags.DEFINE_boolean("visualize", False, "True for visualizing, False for nothing [False]")
 FLAGS = flags.FLAGS
 
 def main(_):
   pp.pprint(flags.FLAGS.__flags)
-
-  if FLAGS.input_width is None:
-    FLAGS.input_width = FLAGS.input_height
-  if FLAGS.output_width is None:
-    FLAGS.output_width = FLAGS.output_height
 
   if not os.path.exists(FLAGS.checkpoint_dir):
     os.makedirs(FLAGS.checkpoint_dir)
@@ -49,30 +39,19 @@ def main(_):
     if FLAGS.dataset == 'mnist':
       deepgan = deepGAN(
           sess,
-          input_width=FLAGS.input_width,
-          input_height=FLAGS.input_height,
-          output_width=FLAGS.output_width,
-          output_height=FLAGS.output_height,
           batch_size=FLAGS.batch_size,
-          y_dim=10,
-          c_dim=1,
+          col_dim=1,
           dataset_name=FLAGS.dataset,
           input_fname_pattern=FLAGS.input_fname_pattern,
-          is_crop=FLAGS.is_crop,
           checkpoint_dir=FLAGS.checkpoint_dir,
           sample_dir=FLAGS.sample_dir)
     else:
       deepgan = deepGAN(
           sess,
-          input_width=FLAGS.input_width,
-          input_height=FLAGS.input_height,
-          output_width=FLAGS.output_width,
-          output_height=FLAGS.output_height,
           batch_size=FLAGS.batch_size,
-          c_dim=FLAGS.c_dim,
+          col_dim=FLAGS.col_dim,
           dataset_name=FLAGS.dataset,
           input_fname_pattern=FLAGS.input_fname_pattern,
-          is_crop=FLAGS.is_crop,
           checkpoint_dir=FLAGS.checkpoint_dir,
           sample_dir=FLAGS.sample_dir)
 
