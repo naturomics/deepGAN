@@ -102,7 +102,7 @@ class deepGAN(object):
             np.random.normal(0, 0.01, (self.sample_num, int(self.cuts[-1]))))
         padding = np.zeros((self.sample_num, self.output_height
                             * self.output_width * self.output_depth
-                            - int(self.cuts[-1])), dtype=float32)
+                            - int(self.cuts[-1])), dtype=np.float32)
         data_pars = np.concatenate((data_pars, padding), axis=1)
         data_cost = np.float32(np.random.random(size=(self.sample_num, 1)))
 
