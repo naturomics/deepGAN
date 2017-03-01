@@ -66,7 +66,7 @@ class deepGAN(object):
         self.D, self.D_logits = self.discriminator(inputs,
                                                    self.cost, reuse=False)
 
-        self.g_sampler = self.sampler(self.z, self.cost, name="generator")
+        self.sampler = self.sampler(self.z, self.cost, name="generator")
         self.D_, self.D_logits_ = self.discriminator(self.G,
                                                      self.cost, reuse=True)
 
@@ -99,11 +99,12 @@ class deepGAN(object):
         self.data_y = self.data_y[:1].astype(np.float32)
 
         data_pars = np.float32(
-            np.random.normal(0, 0.01, (self.batch_size, int(self.cuts[-1]))))
-        padding = np.zeros((self.batch_size, self.output_height
+            np.random.normal(0, 0.01, (self.sample_num, int(self.cuts[-1]))))
+        padding = np.zeros((self.sample_num, self.output_height
                             * self.output_width * self.output_depth
                             - int(self.cuts[-1])), dtype=float32)
-        data_cost = np.float32(np.random.random(size=(self.batch_size, 1)))
+        data_pars = np.concatenate((data_pars, padding), axis=1)
+        data_cost = np.float32(np.random.random(size=(self.sample_num, 1)))
 
         d_optim = tf.train.RMSPropOptimizer(config.learning_rate,
                                          decay=0.5).minimize(self.d_loss, var_list=self.d_vars)
@@ -125,10 +126,6 @@ class deepGAN(object):
 
         self.writer = SummaryWriter("./logs", self.sess.graph)
 
-        sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
-
-        sample_inputs = self.data_pars[0:self.sample_num]
-        sample_labels = self.data_cost[0:self.sample_num]
 
         counter = 1
         start_time = time.time()
@@ -141,8 +138,8 @@ class deepGAN(object):
         for cycle in xrange(config.cycle):
             # use T net with generated pars to calculate true loss,
             # and update new (pars, cost) pair
-            data_cost[-self.batch_size:, ] = self.evaluator(
-                self.sess, data_pars[-self.batch_size:, ])
+            data_cost[-self.sample_num:, ] = self.evaluator(
+                self.sess, data_pars[-self.sample_num:, ])
 
             for epoch in xrange(config.epoch):
                 batch_idxs = min(len(data_pars), config.train_size) // config.batch_size
@@ -166,47 +163,30 @@ class deepGAN(object):
                     })
                     self.writer.add_summary(summary_str, counter)
 
-                    # Run g_optim twice
-                    _, summary_str = self.sess.run([g_optim, g_sum], feed_dict={
-                        self.z: batch_z,
-                        self.cost: batch_cost,
-                    })
-                    self.writer.add_summary(summary_str, counter)
-                    # errD_g1asFake = self.d_loss_g1asFake.eval({
-                    #    self.z: batch_z,
-                    #    self.y: batch_labels
-                    # })
-                    # errD_g2asFake = self.d_loss_g2asFake.eval({
-                    #       self.z: batch_z,
-                    #       self.y: batch_labels
-                    # })
-                    errD = d_loss.eval({
-                        self.inputs: batch_pars,
-                        self.z: batch_z,
-                        self.cost: batch_cost
-                    })
                     counter += 1
-                    print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, errG1:%.8f, errG2:%.8f"
-                          % (generator, epoch, idx, batch_idxs,
-                             time.time() - start_time, errD, err_g, avg_errG[0], avg_errG[1]))
-                    if np.mod(counter, 100) == 1:
-                        samples, d_loss, g_loss = self.sess.run(
-                            [sampler, d_loss, g_loss],
-                            feed_dict={
-                                self.z: sample_z,
-                                self.inputs: sample_inputs,
-                                self.cost: sample_cost,
-                            }
-                        )
-                        save_images(samples, [8, 8],
-                                    './{}/train_{:02d}_{:04d}.png'.format(
-                                        config.sample_dir, epoch, idx))
-                        print("[Sampled] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
-                        if np.mod(counter, 500) == 2:
-                            self.save(config.checkpoint_dir, counter)
 
-    def generator(self, z, cost, name='generator'):
+            # randomly generate pars with expected loss
+            max = data_cost.max()
+            if data_cost.max - 0.01 < 0:
+                min = np.random.uniform(0, data_cost.max(), 1)
+            else:
+                min = data_cost.max() - 0.01
+            expected_cost = np.random.uniform(min, max, (self.sample_num, 1))
+            sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
+            generated_pars = self.sess.run(sampler,
+                                           feed_dict={
+                                               self.z: sample_z,
+                                               self.cost: expected_cost
+                                           })
+            generated_pars = generated_pars[:, int(self.cuts[-1]):] = 0
+            data_pars = np.concatenate((data_pars, generated_pars))
+            data_cost = np.concatenate((data_cost, expected_cost))
+
+    def generator(self, z, cost, name='generator', reuse=False):
             with tf.variable_scope(name) as scope:
+                if reuse:
+                    scope.reuse_variables()
+
                 s_h, s_w = self.output_height, self.output_width
                 s_h2, s_h4 = math.ceil(s_h / 2), math.ceil(s_h / 4)
                 s_w2, s_w4 = math.ceil(s_w / 2), math.ceil(s_w / 4)
@@ -252,28 +232,8 @@ class deepGAN(object):
 
             return tf.nn.sigmoid(h3), h3
 
-    def sampler(self, z, cost=None, name="generator"):
-        with tf.variable_scope(name) as scope:
-            scope.reuse_variables()
-
-            s_h, s_w = self.output_height, self.output_width
-            s_h2, s_h4 = math.ceil(s_h / 2), math.ceil(s_h / 4)
-            s_w2, s_w4 = math.ceil(s_w / 2), math.ceil(s_w / 4)
-
-            cost_reshaped = tf.reshape(cost, [self.batch_size, 1, 1, 1])
-            z = concat([z, cost], 1)
-
-            h0 = tf.nn.relu(self.g_bn0(linear(z, self.gfc_dim, name+'_h0_lin')))
-            h0 = concat([h0, cost], 1)
-
-            h1 = tf.nn.relu(self.g_bn1(linear(h0, self.gf_dim * 2 * s_h4 * s_w4, name+'_h1_lin'), train=False))
-            h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
-            h1 = conv_cond_concat(h1, cost_reshaped)
-
-            h2 = tf.nn.relu(self.g_bn2(deconv2d(h1, [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name=name+'_h2'), train=False))
-            h2 = conv_cond_concat(h2, cost_reshaped)
-
-            return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.output_depth], name=name+'_h3'))
+    def sampler(self, z, cost=None, name="generator", reuse=True):
+        return self.generator(z, cost, name, reuse)
 
     def transmitter(self, x):
             x = tf.reshape(x, shape=[-1, self.input_height, self.input_width, 1])
