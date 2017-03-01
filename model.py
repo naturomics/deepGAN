@@ -62,34 +62,29 @@ class deepGAN(object):
         inputs = self.inputs
         sample_inputs = self.sample_inputs
 
-
         self.G = self.generator(self.z, self.cost, name='generator')
-        print("\nG dims: " + str(self.G.get_shape()))
-        self.D, self.D_logits = self.discriminator(inputs, self.cost, reuse=False)
+        self.D, self.D_logits = self.discriminator(inputs,
+                                                   self.cost, reuse=False)
 
         self.g_sampler = self.sampler(self.z, self.cost, name="generator")
-        self.D_, self.D_logits_ = self.discriminator(self.G, self.cost, reuse=True)
+        self.D_, self.D_logits_ = self.discriminator(self.G,
+                                                     self.cost, reuse=True)
 
         self.d_sum = tf.summary.histogram("d", self.D)
         self.d__sum = tf.summary.histogram("d_", self.D_)
         self.G_sum = tf.summary.image("G", self.G)
 
-        self.d_loss_real = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D_logits, labels=tf.ones_like(self.D)))
-        self.g_loss = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D_logits_, labels=tf.ones_like(self.D_)))
-        self.d_loss_fake = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        self.d_loss_real = tf.reduce_mean(self.D_logits)
+        self.d_loss_fake = tf.reduce_mean(self.D_logits_)
 
-        self.d_loss = self.d_loss_real - self.d_loss_fake
+        self.d_loss = tf.reduce_mean(self.d_loss_real - self.d_loss_fake)
+        self.g_loss = self.d_loss_fake
 
-        self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
-        self.d_loss_g1asFake_sum = tf.summary.scalar("d_loss_g1asFake", self.d_loss_fake)
+        self.d_loss_real_sum = tf.summary.scalar("d_loss_real",
+                                                 self.d_loss_real)
+        self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake",
+                                                 self.d_loss_fake)
         self.d_loss_sum = tf.summary.scalar("d_loss", self.d_loss)
-        self.g_loss_sum = tf.summary.scalar("g_loss", self.g_loss)
 
         t_vars = tf.trainable_variables()
 
@@ -100,18 +95,20 @@ class deepGAN(object):
 
     def train(self, config):
         self.data_X, self.data_y = self.load_mnist()
-        self.data_X = self.data_X[:10].astype(np.float32)
-        self.data_y = self.data_y[:10].astype(np.float32)
+        self.data_X = self.data_X[:1].astype(np.float32)
+        self.data_y = self.data_y[:1].astype(np.float32)
 
-        data_pars = np.float32(np.random.normal(0, 0.01, (self.batch_size, 6401536)))
+        data_pars = np.float32(
+            np.random.normal(0, 0.01, (self.batch_size, int(self.cuts[-1]))))
+        padding = np.zeros((self.batch_size, self.output_height
+                            * self.output_width * self.output_depth
+                            - int(self.cuts[-1])), dtype=float32)
         data_cost = np.float32(np.random.random(size=(self.batch_size, 1)))
-        #data_pars = tf.truncated_normal_initializer(stddev=0.01, seed=1178)((self.batch_size, 6401536))
-        #data_cost = tf.random_uniform_initializer(maxval=1, seed=1178)((self.batch_size, 1))
 
-        d_optim = tf.train.AdamOptimizer(config.learning_rate,
-                                          beta1=config.beta1).minimize(self.d_loss, var_list=self.d_vars)
-        g_optim = tf.train.AdamOptimizer(config.learning_rate,
-                                          beta1=config.beta1).minimize(self.g_loss, var_list=self.g_vars)
+        d_optim = tf.train.RMSPropOptimizer(config.learning_rate,
+                                         decay=0.5).minimize(self.d_loss, var_list=self.d_vars)
+        g_optim = tf.train.RMSPropOptimizer(config.learning_rate,
+                                         decay=0.5).minimize(self.g_loss, var_list=self.g_vars)
 
         try:
             tf.global_variables_initializer().run()
@@ -130,8 +127,8 @@ class deepGAN(object):
 
         sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
 
-        sample_inputs = self.data_X[0:self.sample_num]
-        sample_labels = self.data_y[0:self.sample_num]
+        sample_inputs = self.data_pars[0:self.sample_num]
+        sample_labels = self.data_cost[0:self.sample_num]
 
         counter = 1
         start_time = time.time()
@@ -146,7 +143,6 @@ class deepGAN(object):
             # and update new (pars, cost) pair
             data_cost[-self.batch_size:, ] = self.evaluator(
                 self.sess, data_pars[-self.batch_size:, ])
-            exit()
 
             for epoch in xrange(config.epoch):
                 batch_idxs = min(len(data_pars), config.train_size) // config.batch_size
@@ -158,22 +154,22 @@ class deepGAN(object):
                     # Update D network
                     _, summary_str = self.sess.run([d_optim, d_sum],
                                                     feed_dict={
-                                                        self.inputs: batch_images,
+                                                        self.inputs: batch_pars,
                                                         self.z: batch_z,
-                                                        self.y: batch_labels
+                                                        self.cost: batch_cost
                                                     })
                     self.writer.add_summary(summary_str, counter)
                     # Update G network
                     _, summary_str = self.sess.run([g_optim, g_sum], feed_dict={
                         self.z: batch_z,
-                        self.y: batch_labels,
+                        self.cost: batch_cost,
                     })
                     self.writer.add_summary(summary_str, counter)
 
                     # Run g_optim twice
                     _, summary_str = self.sess.run([g_optim, g_sum], feed_dict={
                         self.z: batch_z,
-                        self.y: batch_labels,
+                        self.cost: batch_cost,
                     })
                     self.writer.add_summary(summary_str, counter)
                     # errD_g1asFake = self.d_loss_g1asFake.eval({
@@ -185,9 +181,9 @@ class deepGAN(object):
                     #       self.y: batch_labels
                     # })
                     errD = d_loss.eval({
-                        self.inputs: batch_images,
+                        self.inputs: batch_pars,
                         self.z: batch_z,
-                        self.y: batch_labels
+                        self.cost: batch_cost
                     })
                     counter += 1
                     print("Epoch(generator %1d): [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, errG1:%.8f, errG2:%.8f"
@@ -199,16 +195,12 @@ class deepGAN(object):
                             feed_dict={
                                 self.z: sample_z,
                                 self.inputs: sample_inputs,
-                                self.y: sample_labels,
+                                self.cost: sample_cost,
                             }
                         )
                         save_images(samples, [8, 8],
-                                    './{}/train_g{:01d}theta{:02d}beta{:02d}_{:02d}_{:04d}.png'.format(
-                                        config.sample_dir, generator,
-                                        int(str(self.theta).replace('.', '')),
-                                        int(str(self.beta).replace('.', '')),
-                                        epoch, idx
-                                    ))
+                                    './{}/train_{:02d}_{:04d}.png'.format(
+                                        config.sample_dir, epoch, idx))
                         print("[Sampled] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
                         if np.mod(counter, 500) == 2:
                             self.save(config.checkpoint_dir, counter)
@@ -216,7 +208,6 @@ class deepGAN(object):
     def generator(self, z, cost, name='generator'):
             with tf.variable_scope(name) as scope:
                 s_h, s_w = self.output_height, self.output_width
-                print("\noutput height & width in generator: " + str(int(s_h)))
                 s_h2, s_h4 = math.ceil(s_h / 2), math.ceil(s_h / 4)
                 s_w2, s_w4 = math.ceil(s_w / 2), math.ceil(s_w / 4)
 
@@ -230,15 +221,11 @@ class deepGAN(object):
                 h1 = tf.nn.relu(self.g_bn1(
                     linear(h0, self.gf_dim * 2 * s_h4 * s_w4, name+'_h1_lin')))
                 h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
-                print("h1 dims: " + str(h1.get_shape()))
                 h1 = conv_cond_concat(h1, cost_reshaped)
-                print("h1 dims(concated): " + str(h1.get_shape()))
 
                 h2 = tf.nn.relu(self.g_bn2(deconv2d(h1,
                                                     [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name=name+'_h2')))
-                print("\nh2 dims: " + str(h2.get_shape()))
                 h2 = conv_cond_concat(h2, cost_reshaped)
-                print("h2 dims(concated): " + str(h2.get_shape()))
 
                 return tf.nn.sigmoid(
                     deconv2d(h2, [self.batch_size, s_h, s_w, self.output_depth], name=name+'_h3'))
@@ -373,7 +360,10 @@ class deepGAN(object):
                                'b_t_conv2', 'b_t_conv3', 'b_t_fc']]
         self.cuts = np.cumsum([w_cuts, b_cuts])
         self.output_height = math.ceil(math.sqrt(float(int(self.cuts[-1])) / int(self.output_depth)))
-        self.output_width = math.floor(math.sqrt(float(int(self.cuts[-1])) / int(self.output_depth)))
+        if int(self.cuts[-1]) > self.output_height * (self.output_height - 1) * self.output_depth:
+            self.output_width = math.ceil(math.sqrt(float(int(self.cuts[-1])) / int(self.output_depth)))
+        else:
+            self.output_width = math.floor(math.sqrt(float(int(self.cuts[-1])) / int(self.output_depth)))
         input_dims = [self.output_height, self.output_width, self.output_depth]
 
         self.cost = tf.placeholder(tf.float32, [self.batch_size, 1], name='cost')
