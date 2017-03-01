@@ -63,11 +63,11 @@ class deepGAN(object):
         sample_inputs = self.sample_inputs
 
 
-        self.G = self.generator(self.z, self.cost, name='G1')
+        self.G = self.generator(self.z, self.cost, name='generator')
         print("\nG dims: " + str(self.G.get_shape()))
         self.D, self.D_logits = self.discriminator(inputs, self.cost, reuse=False)
 
-        self.g_sampler = self.sampler(self.z, self.cost, name="G1")
+        self.g_sampler = self.sampler(self.z, self.cost, name="generator")
         self.D_, self.D_logits_ = self.discriminator(self.G, self.cost, reuse=True)
 
         self.d_sum = tf.summary.histogram("d", self.D)
@@ -94,7 +94,7 @@ class deepGAN(object):
         t_vars = tf.trainable_variables()
 
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
-        self.g_vars = [var for var in t_vars if 'G_' in var.name]
+        self.g_vars = [var for var in t_vars if 'generator_' in var.name]
 
         self.saver = tf.train.Saver()
 
