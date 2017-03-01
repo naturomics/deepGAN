@@ -13,10 +13,10 @@ from utils import *
 
 class deepGAN(object):
     def __init__(self, sess, input_height=108, input_width=108, is_crop=True,
-                 batch_size=64, sample_num=64, output_height=64, output_width=64,
-                 y_dim=None, z_dim=100, gf_dim=64, df_dim=64,
-                 gfc_dim=1024, dfc_dim=1024, c_dim=3, dataset_name='default',
-                 input_fname_pattern='*.jpg', checkpoint_dir=None, sample_dir=None):
+                 batch_size=64, sample_num=64, y_dim=None, z_dim=100,
+                 gf_dim=64, df_dim=64, gfc_dim=1024, dfc_dim=1024, col_dim=3,
+                 dataset_name='default', input_fname_pattern='*.jpg',
+                 checkpoint_dir=None, sample_dir=None):
         """
 
         Args:
@@ -28,18 +28,15 @@ class deepGAN(object):
             df_dim: (optional) Dimension of discrim filters in first conv layer. [64]
             gfc_dim: (optional) Dimension of gen units for for fully connected layer. [1024]
             dfc_dim: (optional) Dimension of discrim units for fully connected layer. [1024]
-            c_dim: (optional) Dimension of image color. For grayscale input, set to 1. [3]
+            col_dim: (optional) Dimension of image color. For grayscale input, set to 1. [3]
         """
         self.sess = sess
         self.is_crop = is_crop
-        self.is_grayscale = (c_dim == 1)
         self.batch_size = batch_size
         self.sample_num = sample_num
 
         self.input_height = input_height
         self.input_width = input_width
-        self.output_height = output_height
-        self.output_width = output_width
 
         self.y_dim = y_dim
         self.z_dim = z_dim
@@ -50,7 +47,7 @@ class deepGAN(object):
         self.gfc_dim = gfc_dim
         self.dfc_dim = dfc_dim
 
-        self.c_dim = c_dim
+        self.col_dim = col_dim
 
         self.d_bn1 = batch_norm(name='d_bn1')
         self.d_bn2 = batch_norm(name='d_bn2')
@@ -59,20 +56,21 @@ class deepGAN(object):
         self.g_bn1 = batch_norm(name='g_bn1')
         self.g_bn2 = batch_norm(name='g_bn2')
 
+        self._setup_placeholder()
+
         self.dataset_name = dataset_name
         self.input_fname_pattern = input_fname_pattern
         self.checkpoint_dir = checkpoint_dir
         self.build_model()
 
-    def generator(self, z, y, name='generator'):
+    def generator(self, z, cost, name='generator'):
             with tf.variable_scope(name) as scope:
                 s_h, s_w = self.output_height, self.output_width
                 s_h2, s_h4 = int(s_h / 2), int(s_h / 4)
                 s_w2, s_w4 = int(s_w / 2), int(s_w / 4)
 
-                # yb = tf.expand_dims(tf.expand_dims(y, 1),2)
-                yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
-                z = concat([z, y], 1)
+                cost = tf.reshape(cost, [self.batch_size, 1, 1, 1])
+                z = concat([z, cost], 1)
 
                 h0 = tf.nn.relu(
                     self.g_bn0(linear(z, self.gfc_dim, name+'_h0_lin')))
@@ -81,28 +79,24 @@ class deepGAN(object):
                 h1 = tf.nn.relu(self.g_bn1(
                     linear(h0, self.gf_dim * 2 * s_h4 * s_w4, name+'_h1_lin')))
                 h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
-                h1 = conv_cond_concat(h1, yb)
+                h1 = conv_cond_concat(h1, cost)
 
                 h2 = tf.nn.relu(self.g_bn2(deconv2d(h1,
                                                     [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name=name+'_h2')))
-                h2 = conv_cond_concat(h2, yb)
+                h2 = conv_cond_concat(h2, cost)
 
                 return tf.nn.sigmoid(
-                    deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name=name+'_h3'))
+                    deconv2d(h2, [self.batch_size, s_h, s_w, self.col_dim], name=name+'_h3'))
 
     def build_model(self):
         if self.y_dim:
             self.y = tf.placeholder(tf.float32, [self.batch_size, self.y_dim], name='y')
 
         if self.is_crop:
-            image_dims = [self.output_height, self.output_width, self.c_dim]
+            image_dims = [self.output_height, self.output_width, self.col_dim]
         else:
-            image_dims = [self.input_height, self.input_width, self.c_dim]
+            image_dims = [self.input_height, self.input_width, self.col_dim]
 
-        self.inputs = tf.placeholder(
-            tf.float32, [self.batch_size] + image_dims, name='real_images')
-        self.sample_inputs = tf.placeholder(
-            tf.float32, [self.sample_num] + image_dims, name='sample_inputs')
 
         inputs = self.inputs
         sample_inputs = self.sample_inputs
@@ -167,8 +161,8 @@ class deepGAN(object):
 
     def train(self, config):
         self.data_X, self.data_y = self.load_mnist()
-        self.data_X = self.data_X.astype(np.float32)
-        self.data_y = self.data_y.astype(np.float32)
+        self.data_X = self.data_X[:100].astype(np.float32)
+        self.data_y = self.data_y[:100].astype(np.float32)
 
         data_pars = np.float32(np.random.normal(0, 0.01, (self.batch_size, 6401536)))
         data_cost = np.float32(np.random.random(size=(self.batch_size, 1)))
@@ -208,23 +202,12 @@ class deepGAN(object):
         else:
             print(" [!] Load failed...")
 
-        print('transmitter in train fun')
-        self.transmitter(self.data_X)
         for cycle in xrange(config.cycle):
             # use T net with generated pars to calculate true loss,
             # and update new (pars, cost) pair
             data_cost[-self.batch_size:, ] = self.evaluator(
                 self.sess, data_pars[-self.batch_size:, ])
 
-            w_cuts = [reduce(mul, self.weights[name].get_shape()) for name in self.weights]
-            b_cuts = [reduce(mul, self.biases[name].get_shape()) for name in self.biases]
-            cuts = np.cumsum([w_cuts, b_cuts])
-
-            self.output_height = math.ceil(math.sqrt(float(int(cuts[-1])) / float(int(3))))
-            self.output_width = self.output_height
-            print('output height:')
-            print(self.output_height)
-            exit()
             for epoch in xrange(config.epoch):
                 batch_idxs = min(len(data_pars), config.train_size) // config.batch_size
                 for idx in xrange(0, batch_idxs):
@@ -298,7 +281,7 @@ class deepGAN(object):
             yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
             x = conv_cond_concat(image, yb)
 
-            h0 = lrelu(conv2d(x, self.c_dim + self.y_dim, name='d_h0_conv'))
+            h0 = lrelu(conv2d(x, self.col_dim + self.y_dim, name='d_h0_conv'))
             h0 = conv_cond_concat(h0, yb)
 
             h1 = lrelu(self.d_bn1(conv2d(h0, self.df_dim + self.y_dim, name='d_h1_conv')))
@@ -333,14 +316,67 @@ class deepGAN(object):
             h2 = tf.nn.relu(self.g_bn2(deconv2d(h1, [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name=name+'_h2'), train=False))
             h2 = conv_cond_concat(h2, yb)
 
-            return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name=name+'_h3'))
+            return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.col_dim], name=name+'_h3'))
 
-    def transmitter(self, x, k_h=5, k_w=5, name="transmitter"):
-        with tf.variable_scope(name):
+    def transmitter(self, x):
+            x = tf.reshape(x, shape=[-1, self.input_height, self.input_width, 1])
+            h0 = lrelu(conv2d_t(x, self.weights['w_t_conv0'],
+                                self.biases['b_t_conv0']))
+            h1 = lrelu(conv2d_t(h0, self.weights['w_t_conv1'],
+                                self.biases['b_t_conv1']))
+            h2 = lrelu(conv2d_t(h1, self.weights['w_t_conv2'],
+                                self.biases['b_t_conv2']))
+            h3 = lrelu(conv2d_t(h2, self.weights['w_t_conv3'],
+                                self.biases['b_t_conv3']))
+            h4 = tf.matmul(tf.reshape(h3, [len(self.data_X), -1]),
+                           self.weights['w_t_fc']) + self.biases['b_t_fc']
+
+            return(tf.nn.sigmoid(h4), h4)
+
+    def evaluator(self, sess, pars):
+        for par in pars:
+            T, T_logits = sess.run(self.transmitter(self.data_X), feed_dict={
+                self.weights['w_t_conv0']:
+                np.reshape(par[:self.cuts[0]],
+                           self.weights['w_t_conv0'].get_shape()),
+                self.weights['w_t_conv1']:
+                np.reshape(par[self.cuts[0]:self.cuts[1]],
+                           self.weights['w_t_conv1'].get_shape()),
+                self.weights['w_t_conv2']:
+                np.reshape(par[self.cuts[1]:self.cuts[2]],
+                           self.weights['w_t_conv2'].get_shape()),
+                self.weights['w_t_conv3']:
+                np.reshape(par[self.cuts[2]:self.cuts[3]],
+                           self.weights['w_t_conv3'].get_shape()),
+                self.weights['w_t_fc']:
+                np.reshape(par[self.cuts[3]:self.cuts[4]],
+                           self.weights['w_t_fc'].get_shape()),
+                self.biases['b_t_conv0']:
+                np.reshape(par[self.cuts[4]:self.cuts[5]],
+                           self.biases['b_t_conv0'].get_shape()),
+                self.biases['b_t_conv1']:
+                np.reshape(par[self.cuts[5]:self.cuts[6]],
+                           self.biases['b_t_conv1'].get_shape()),
+                self.biases['b_t_conv2']:
+                np.reshape(par[self.cuts[6]:self.cuts[7]],
+                           self.biases['b_t_conv2'].get_shape()),
+                self.biases['b_t_conv3']:
+                np.reshape(par[self.cuts[7]:self.cuts[8]],
+                           self.biases['b_t_conv3'].get_shape()),
+                self.biases['b_t_fc']:
+                np.reshape(par[self.cuts[8]:self.cuts[9]],
+                           self.biases['b_t_fc'].get_shape())
+            })
+            cost = 0  # use the evaluator to calculate the loss
+
+        return(cost)
+
+    def _setup_placeholder(self, k_h=5, k_w=5):
+        with tf.variable_scope("transmitter"):
             self.weights = {
                 'w_t_conv0': tf.placeholder(
                     tf.float32,
-                    [k_h, k_w, x.shape[-1], self.df_dim]),
+                    [k_h, k_w, self.col_dim, self.df_dim]),
                 'w_t_conv1': tf.placeholder(
                     tf.float32,
                     [k_h, k_w, self.df_dim, self.df_dim * 2]),
@@ -359,67 +395,19 @@ class deepGAN(object):
                 'b_t_conv3': tf.placeholder(tf.float32, [self.df_dim * 8]),
                 'b_t_fc': tf.placeholder(tf.float32, [self.dfc_dim])
             }
-
-            x = tf.reshape(x, shape=[-1, self.input_height, self.input_width, 1])
-            h0 = lrelu(conv2d_t(x, self.weights['w_t_conv0'],
-                                self.biases['b_t_conv0']))
-            h1 = lrelu(conv2d_t(h0, self.weights['w_t_conv1'],
-                                self.biases['b_t_conv1']))
-            h2 = lrelu(conv2d_t(h1, self.weights['w_t_conv2'],
-                                self.biases['b_t_conv2']))
-            h3 = lrelu(conv2d_t(h2, self.weights['w_t_conv3'],
-                                self.biases['b_t_conv3']))
-            h4 = tf.matmul(tf.reshape(h3, [len(self.data_X), -1]),
-                           self.weights['w_t_fc']) + self.biases['b_t_fc']
-
-            return(tf.nn.sigmoid(h4), h4)
-
-    def evaluator(self, sess, pars):
         w_cuts = [reduce(mul, self.weights[name].get_shape())
-                  for name in ['w_t_conv0', 'w_t_conv1',
-                               'w_t_conv2', 'w_t_conv3', 'w_t_fc']]
+                  for name in self.weights]
         b_cuts = [reduce(mul, self.biases[name].get_shape())
-                  for name in ['b_t_conv0', 'b_t_conv1',
-                               'b_t_conv2', 'b_t_conv3', 'b_t_fc']]
-        cuts = np.cumsum([w_cuts, b_cuts])
-        print(cuts)
-        for par in pars:
-            print('transmitter in evaluator')
-            T, T_logits = sess.run(self.transmitter(self.data_X), feed_dict={
-                self.weights['w_t_conv0']:
-                np.reshape(par[:cuts[0]],
-                           self.weights['w_t_conv0'].get_shape()),
-                self.weights['w_t_conv1']:
-                np.reshape(par[cuts[0]:cuts[1]],
-                           self.weights['w_t_conv1'].get_shape()),
-                self.weights['w_t_conv2']:
-                np.reshape(par[cuts[1]:cuts[2]],
-                           self.weights['w_t_conv2'].get_shape()),
-                self.weights['w_t_conv3']:
-                np.reshape(par[cuts[2]:cuts[3]],
-                           self.weights['w_t_conv3'].get_shape()),
-                self.weights['w_t_fc']:
-                np.reshape(par[cuts[3]:cuts[4]],
-                           self.weights['w_t_fc'].get_shape()),
-                self.biases['b_t_conv0']:
-                np.reshape(par[cuts[4]:cuts[5]],
-                           self.biases['b_t_conv0'].get_shape()),
-                self.biases['b_t_conv1']:
-                np.reshape(par[cuts[5]:cuts[6]],
-                           self.biases['b_t_conv1'].get_shape()),
-                self.biases['b_t_conv2']:
-                np.reshape(par[cuts[6]:cuts[7]],
-                           self.biases['b_t_conv2'].get_shape()),
-                self.biases['b_t_conv3']:
-                np.reshape(par[cuts[7]:cuts[8]],
-                           self.biases['b_t_conv3'].get_shape()),
-                self.biases['b_t_fc']:
-                np.reshape(par[cuts[8]:cuts[9]],
-                           self.biases['b_t_fc'].get_shape())
-            })
-            cost = 0  # use the evaluator to calculate the loss
+                  for name in self.biases]
+        self.cuts = np.cumsum([w_cuts, b_cuts])
+        self.output_height = math.ceil(math.sqrt(float(int(self.cuts[-1])) / float(int(self.col_dim))))
+        self.output_width = self.output_height
+        input_dims = [self.output_height, self.output_width, self.col_dim]
 
-        return(cost)
+        self.inputs = tf.placeholder(
+            tf.float32, [self.batch_size] +input_dims, name='real_images')
+        self.sample_inputs = tf.placeholder(
+            tf.float32, [self.sample_num] + input_dims, name='sample_inputs')
 
     def load_mnist(self):
         data_dir = os.path.join("./data", self.dataset_name)
