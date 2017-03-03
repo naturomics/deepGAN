@@ -8,11 +8,10 @@ from utils import pp, visualize, to_json
 import tensorflow as tf
 
 flags = tf.app.flags
-flags.DEFINE_integer("epoch", 25, "Epoch to train [25]")
+flags.DEFINE_integer("epoch", 2, "Epoch to train [25]")
 flags.DEFINE_float("learning_rate", 0.0002, "Learning rate of for adam [0.0002]")
 flags.DEFINE_integer("cycle", 1000, "The size of train images [np.inf]")
 flags.DEFINE_integer("train_size", np.inf, "The size of train images [np.inf]")
-flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
 flags.DEFINE_integer("col_dim", 1, "Dimension of image color. [3]")
 flags.DEFINE_string("dataset", "celebA", "The name of dataset [celebA, mnist, lsun]")
 flags.DEFINE_string("input_fname_pattern", "*.jpg", "Glob pattern of filename of input images [*]")
@@ -38,7 +37,6 @@ def main(_):
     if FLAGS.dataset == 'mnist':
       deepgan = deepGAN(
           sess,
-          batch_size=FLAGS.batch_size,
           col_dim=1,
           dataset_name=FLAGS.dataset,
           input_fname_pattern=FLAGS.input_fname_pattern,
@@ -47,7 +45,6 @@ def main(_):
     else:
       deepgan = deepGAN(
           sess,
-          batch_size=FLAGS.batch_size,
           col_dim=FLAGS.col_dim,
           dataset_name=FLAGS.dataset,
           input_fname_pattern=FLAGS.input_fname_pattern,
