@@ -13,7 +13,7 @@ flags.DEFINE_float("learning_rate", 0.0002, "Learning rate of for adam [0.0002]"
 flags.DEFINE_integer("cycle", 1000, "The size of train images [np.inf]")
 flags.DEFINE_integer("train_size", np.inf, "The size of train images [np.inf]")
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
-flags.DEFINE_integer("col_dim", 3, "Dimension of image color. [3]")
+flags.DEFINE_integer("col_dim", 1, "Dimension of image color. [3]")
 flags.DEFINE_string("dataset", "celebA", "The name of dataset [celebA, mnist, lsun]")
 flags.DEFINE_string("input_fname_pattern", "*.jpg", "Glob pattern of filename of input images [*]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint", "Directory name to save the checkpoints [checkpoint]")
@@ -39,7 +39,7 @@ def main(_):
       deepgan = deepGAN(
           sess,
           batch_size=FLAGS.batch_size,
-          col_dim=3,
+          col_dim=1,
           dataset_name=FLAGS.dataset,
           input_fname_pattern=FLAGS.input_fname_pattern,
           checkpoint_dir=FLAGS.checkpoint_dir,
