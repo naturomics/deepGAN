@@ -12,7 +12,7 @@ from utils import *
 
 
 class deepGAN(object):
-    def __init__(self, sess, batch_size=64, sample_num=64, z_dim=100, conv='conv2d',
+    def __init__(self, sess, batch_size=32, z_dim=100, conv='conv2d',
                  gf_dim=16, df_dim=16, tf_dim=16, tfc_dim=512, gfc_dim=512, dfc_dim=512, col_dim=1,
                  dataset_name='default', input_fname_pattern='*.jpg', output_channel=3,
                  T_input_height=28, T_input_width=28, n_classes=10,
@@ -32,7 +32,6 @@ class deepGAN(object):
         """
         self.sess = sess
         self.batch_size = batch_size
-        self.sample_num = sample_num
         self.n_classes = n_classes
         self.T_input_height = T_input_height
         self.T_input_width = T_input_width
@@ -59,39 +58,47 @@ class deepGAN(object):
         self.g_bn2_1 = batch_norm(name='g_bn2_1')
         self.g_bn2_2 = batch_norm(name='g_bn2_2')
 
-        self._setup_placeholder()
-
         self.dataset_name = dataset_name
         self.input_fname_pattern = input_fname_pattern
         self.checkpoint_dir = checkpoint_dir
         self.build_model()
 
     def build_model(self):
+        self._setup_placeholder()
         inputs = self.inputs
         sample_inputs = self.sample_inputs
 
         print("\ndefining generator...")
-        self.G = self.generator(self.z, self.cost, name='generator')
+        self.G = self.generator(self.z, self.cost, name='g')
         print("\n\ndefining discriminator...")
-        self.D, self.D_logits = self.discriminator(inputs,
-                                                   self.cost, reuse=False)
+        print(self.inputs)
+        self.D, self.D_logits = self.discriminator(cost=self.cost)
         print("G & D defined!\n")
 
         print("reusing G & D...")
-        self.sampler = self.sampler(self.z, self.cost, name="generator")
+        #self.sampler = self.sampler(self.z, self.cost, name="generator", reuse=True)
+        self.sampler = self.generator(self.z, self.cost, name='g', reuse=True)
         self.D_, self.D_logits_ = self.discriminator(self.G,
                                                      self.cost, reuse=True)
         print("reused !\n")
 
-        self.d_sum = tf.summary.histogram("d", self.D)
+        self.D_sum = tf.summary.histogram("d", self.D)
         self.d__sum = tf.summary.histogram("d_", self.D_)
         self.G_sum = tf.summary.image("G", self.G)
 
-        self.d_loss_real = tf.reduce_mean(self.D_logits)
-        self.d_loss_fake = tf.reduce_mean(self.D_logits_)
+        self.d_loss_real = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                logits=self.D_logits, labels=tf.ones_like(self.D)))
+        self.d_loss_fake = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
 
-        self.d_loss = tf.reduce_mean(self.d_loss_real - self.d_loss_fake)
-        self.g_loss = self.d_loss_fake
+        # self.d_loss = tf.reduce_mean(self.D_logits - self.D_logits_)
+        self.d_loss = self.d_loss_real + self.d_loss_fake
+        # self.g_loss = self.d_loss_fake
+        self.g_loss = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                logits=self.D_logits_, labels=tf.ones_like(self.D_)))
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real",
                                                  self.d_loss_real)
@@ -102,7 +109,7 @@ class deepGAN(object):
         t_vars = tf.trainable_variables()
 
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
-        self.g_vars = [var for var in t_vars if 'generator_' in var.name]
+        self.g_vars = [var for var in t_vars if 'g_' in var.name]
 
         self.saver = tf.train.Saver()
 
@@ -112,14 +119,14 @@ class deepGAN(object):
         self.data_y = self.data_y[:50].astype(np.float16)
 
         print("\ngenerating init pars: ")
-        data_pars = np.float32(
-            np.random.normal(0, 0.01, (self.sample_num, int(self.cuts[-1]))))
-        padding = np.zeros((self.sample_num, self.output_height
+        data_pars = np.float16(
+            np.random.normal(0, 0.01, (self.batch_size, int(self.cuts[-1]))))
+        padding = np.zeros((self.batch_size, self.output_height
                             * self.output_width * self.output_channel
-                            - int(self.cuts[-1])), dtype=np.float32)
+                            - int(self.cuts[-1])), dtype=np.float16)
         data_pars = np.concatenate((data_pars, padding), axis=1)
         print("pars generated! pars dims: "+ str(data_pars.shape))
-        data_cost = np.float16(np.random.random(size=(self.sample_num, 1)))
+        data_cost = np.float16(np.random.random(size=(self.batch_size, 1)))
 
         print("\ndefine optimizer")
         d_optim = tf.train.RMSPropOptimizer(config.learning_rate,
@@ -133,10 +140,10 @@ class deepGAN(object):
         print("variables initialized")
 
         self.g_sum = tf.summary.merge([
-            self.z_sum, self.G_sum,
+            self.z_sum, self.G_sum, self.d__sum,
             self.d_loss_fake_sum])
         self.d_sum = tf.summary.merge([
-            self.z_sum, self.d_sum,
+            self.z_sum, self.D_sum,
             self.d_loss_real_sum,
             self.d_loss_sum])
 
@@ -158,7 +165,7 @@ class deepGAN(object):
             print(data_pars)
             print("\nraw cost")
             print(data_cost)
-            data_cost = self.evaluator(self.sess, data_pars[-self.sample_num:, ])
+            data_cost[-self.batch_size:,] = self.evaluator(self.sess, data_pars[-self.batch_size:, ])
             print("\ntrue cost: ")
             print(data_cost)
 
@@ -166,51 +173,85 @@ class deepGAN(object):
                 batch_idxs = min(len(data_pars), config.train_size) // self.batch_size
                 for idx in xrange(0, batch_idxs):
                     batch_pars = data_pars[idx * self.batch_size:(idx + 1) * self.batch_size]
-                    batch_pars = np.reshape(batch_pars, ([self.batch_size] + self.input_dims))
-                    print(type(batch_pars))
+                    self.batch_pars = np.reshape(batch_pars, ([self.batch_size] + self.input_dims))
                     batch_cost = data_cost[idx * self.batch_size:(idx + 1) * self.batch_size]
-                    batch_cost = np.reshape(batch_cost, ([self.batch_size, 1]))
-                    print(type(batch_cost))
+                    #batch_cost = np.reshape(batch_cost, ([self.batch_size, 1]))
                     batch_z = np.random.uniform(-1, 1, [self.batch_size, self.z_dim]).astype(np.float16)
 
+                    #print(self.batch_pars.shape)
+                    #print(batch_cost.shape)
+                    #print(batch_z.shape)
+                    print(np.nansum(self.sess.run(
+                    #print(self.sess.run(
+                        [tf.is_nan(self.inputs),tf.is_nan(self.input)],
+                        feed_dict={
+                            self.inputs:self.batch_pars,
+                            self.cost:batch_cost,
+                            self.z: batch_z
+                        })))
+                    #print(np.nansum(self.sess.run(
+                        #tf.is_nan(self.w),
+                    print(self.sess.run(
+                        self.w,
+                        feed_dict={
+                            self.inputs:self.batch_pars,
+                            self.cost:batch_cost,
+                            self.z: batch_z
+                        }))
                     # Update D network
                     print("\nupdating D network...")
-                    _, summary_str = self.sess.run(d_optim,
+                    #exit()
+                    _, summary_str = self.sess.run([d_optim, self.d_sum],
+                    #_ = self.sess.run(d_optim,
                                                     feed_dict={
-                                                        self.inputs: batch_pars,
+                                                        self.inputs: self.batch_pars,
                                                         self.z: batch_z,
                                                         self.cost: batch_cost
                                                     })
-                    #self.writer.add_summary(summary_str, counter)
+                    self.writer.add_summary(summary_str, counter)
+                    print(self.sess.run(
+                        self.w,
+                        feed_dict={
+                            self.inputs:self.batch_pars,
+                            self.cost:batch_cost,
+                            self.z: batch_z
+                        }))
+                    time.sleep(30)
                     # Update G network
-                    print("\nupdating G network...")
-                    _, summary_str = self.sess.run(g_optim, feed_dict={
+                    print("updating G network...")
+                    _ = self.sess.run(g_optim, feed_dict={
                         self.z: batch_z,
                         self.cost: batch_cost,
                     })
                     #self.writer.add_summary(summary_str, counter)
 
-                    errD = self.d_loss_real.eval({self.inputs: batch_pars,self.cost:batch_cost})
+                    errD = self.d_loss_real.eval({self.inputs: self.batch_pars,self.cost:batch_cost})
                     errG = self.d_loss_fake.eval({self.z: batch_z,self.cost:batch_cost})
 
                     counter += 1
-                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" % (epoch, idx, batch_idxs, time.time() - start_time, errD, errG))
+                    print("\nEpoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" % (epoch, idx, batch_idxs, time.time() - start_time, errD, errG))
 
+            self.save(config.checkpoint_dir, counter)
             # randomly generate pars with expected loss
             max_val = data_cost.max()
             if (max(data_cost) - 0.01) < 0:
                 min_val = np.random.uniform(0, data_cost.max(), 1)
             else:
                 min_val = data_cost.max() - 0.01
-            expected_cost = np.random.uniform(min_val, max_val, (self.sample_num, 1))
-            sample_z = np.random.uniform(-1, 1, size=(self.sample_num, self.z_dim))
+            expected_cost = np.random.uniform(min_val, max_val, (self.batch_size, 1))
+            sample_z = np.random.uniform(-1, 1, size=(self.batch_size, self.z_dim))
             print("\ngenerating expected parameters...")
-            generated_pars = self.sess.run(self.sampler,
+            generated_pars, d_loss, g_loss = self.sess.run([self.sampler, self.d_loss, self.g_loss],
                                            feed_dict={
                                                self.z: sample_z,
-                                               self.cost: expected_cost
+                                               self.cost: expected_cost,
+                                               self.inputs: self.batch_pars
                                            })
-            generated_pars = generated_pars[:, int(self.cuts[-1]):] = 0
+            print("generated parameters dims: " + str(generated_pars.shape))
+            save_images(generated_pars, [16, 16], './{}/train_{:04d}.png'.format(config.sample_dir, cycle))
+            generated_pars = np.reshape(generated_pars, (self.batch_size, -1))
+            print("training data parameters dims: " + str(data_pars.shape))
+            generated_pars[:, int(self.cuts[-1]):] = 0
             data_pars = np.concatenate((data_pars, generated_pars))
             data_cost = np.concatenate((data_cost, expected_cost))
             print("\ncycle [%2d] done" % cycle)
@@ -218,6 +259,7 @@ class deepGAN(object):
     def generator(self, z, cost, name='generator', reuse=False):
             with tf.variable_scope(name) as scope:
                 if reuse:
+                    print("\nreusing generator!")
                     scope.reuse_variables()
 
                 if self.conv == 'conv2d':
@@ -228,10 +270,13 @@ class deepGAN(object):
 
                     cost_reshaped = tf.reshape(cost, [self.batch_size, 1, 1, 1])
                     z = concat([z, cost], 1)
+                    self.g_z = z
                     print("\nz dims(concated): " + str(z.get_shape()))
 
-                    h0 = tf.nn.relu(
-                        self.g_bn0(linear(z, self.gfc_dim, name+'_h0_lin')))
+                    #h0 = tf.nn.relu(
+                        #self.g_bn0(linear(z, self.gfc_dim, name+'_h0_lin')))
+                    self.g_h0, self.w, self.bias = linear(z, self.gfc_dim, name+'_h0_lin', with_w=True)
+                    h0 = tf.nn.relu(self.g_bn0(self.g_h0))
                     print("\nh0 dims: " + str(h0.get_shape()))
                     h0 = concat([h0, cost], 1)
                     print("h0 dims(concated): " + str(h0.get_shape()))
@@ -258,6 +303,8 @@ class deepGAN(object):
                     print("\nh2 dims(deconv2ded): " + str(h2.get_shape()))
                     h2 = conv_cond_concat(h2, cost_reshaped, conv=self.conv)
                     print("h2 dims(concated): " + str(h2.get_shape()))
+                    self.g_h2 = h2
+                    time.sleep(5)
 
                     return tf.nn.sigmoid(
                         deconv2d(h2, [self.batch_size, s_h, s_w, self.output_channel], name=name+'_h3'))
@@ -287,20 +334,30 @@ class deepGAN(object):
                     return tf.nn.sigmoid(
                         deconv3d(h2, [self.batch_size, s_h, s_w, s_d, self.output_channel], name=name + '_h3'))
 
-    def discriminator(self, input, cost=None, conv="conv2d", reuse=False):
+    def discriminator(self, image=None, cost=None, reuse=False):
+        print(image)
+        print(isinstance(image, (tf.Tensor)))
         with tf.variable_scope("discriminator") as scope:
             if reuse:
                 scope.reuse_variables()
+            else:
+                image = self.inputs
+                self.input = image
 
             if self.conv == 'conv2d':
                 cost_reshaped = tf.reshape(cost, [self.batch_size, 1, 1, 1])
-                x = conv_cond_concat(input, cost_reshaped, conv=self.conv)
+                self.cost_reshaped = cost_reshaped
+                self.image = image
+                x = conv_cond_concat(image, cost_reshaped, conv=self.conv)
                 print("x dims(concated): " + str(x.shape))
+                #print("input: " + str(image))
+                self.x = x
 
                 h0 = lrelu(conv2d(x, self.output_channel + 1, name='d_h0_conv'))
                 print("\nh0 dims(conv2ded): " + str(h0.get_shape()))
                 h0 = conv_cond_concat(h0, cost_reshaped, conv=self.conv)
-                print("h0 dims(concated): " + str(h0.get_shape()))
+                #print("h0 dims(concated): " + str(h0.get_shape()))
+                self.h0 = h0
 
                 h0_1 = lrelu(conv2d(h0, self.output_channel + 1, name='d_h0_1_conv'))
                 h0_1 = conv_cond_concat(h0_1, cost_reshaped, conv=self.conv)
@@ -309,19 +366,20 @@ class deepGAN(object):
                 h0_2 = conv_cond_concat(h0_2, cost_reshaped, conv=self.conv)
 
                 h1 = lrelu(self.d_bn1(conv2d(h0_2, self.df_dim + 1, name='d_h1_conv')))
-                print("\nh1 dims(conv2ded): " + str(h1.get_shape()))
+                #print("\nh1 dims(conv2ded): " + str(h1.get_shape()))
                 h1 = tf.reshape(h1, [self.batch_size, -1])
-                print("\nh1 dims(reshaped): " + str(h1.get_shape()))
+                #print("\nh1 dims(reshaped): " + str(h1.get_shape()))
                 h1 = concat([h1, cost], 1)
-                print("h1 dims(concated): " + str(h1.get_shape()))
+                #print("h1 dims(concated): " + str(h1.get_shape()))
 
                 h2 = lrelu(self.d_bn2(linear(h1, self.dfc_dim, 'd_h2_lin')))
-                print("\nh2 dims(lin): " + str(h2.get_shape()))
+                #print("\nh2 dims(lin): " + str(h2.get_shape()))
                 h2 = concat([h2, cost], 1)
-                print("h2 dims(concated): " + str(h2.get_shape()))
+                #print("h2 dims(concated): " + str(h2.get_shape()))
 
                 h3 = linear(h2, 1, 'd_h3_lin')
-                print("\nh3 dims(lin): " + str(h3.get_shape()))
+                #print("\nh3 dims(lin): " + str(h3.get_shape()))
+                #print("\nh3: " + str(h3))
 
                 return tf.nn.sigmoid(h3), h3
             elif self.conv == 'conv3d':
@@ -343,6 +401,7 @@ class deepGAN(object):
                 return tf.nn.sigmoid(h3), h3
 
     def sampler(self, z, cost=None, name="generator", reuse=True):
+        print("\nrunning sampler...")
         return self.generator(z, cost, name=name, reuse=reuse)
 
     def transmitter(self, x):
@@ -411,7 +470,7 @@ class deepGAN(object):
             loss = self.sess.run(loss)
             print("loss: " + str(loss))
             cost.append(loss)
-        cost = np.reshape(cost, (self.sample_num, 1))
+        cost = np.reshape(cost, (self.batch_size, 1))
 
         return(cost)
 
@@ -469,7 +528,7 @@ class deepGAN(object):
         self.inputs = tf.placeholder(
             tf.float16, [self.batch_size] +self.input_dims, name='real_images')
         self.sample_inputs = tf.placeholder(
-            tf.float16, [self.sample_num] + self.input_dims, name='sample_inputs')
+            tf.float16, [self.batch_size] + self.input_dims, name='sample_inputs')
 
     def load_mnist(self):
         data_dir = os.path.join("./data", self.dataset_name)
