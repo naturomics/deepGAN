@@ -12,7 +12,7 @@ from utils import *
 
 
 class deepGAN(object):
-    def __init__(self, sess, batch_size=32, z_dim=100, conv='conv2d',
+    def __init__(self, sess, batch_size=8, z_dim=100, conv='conv2d',
                  gf_dim=16, df_dim=16, tf_dim=16, tfc_dim=512, gfc_dim=512, dfc_dim=512, col_dim=1,
                  dataset_name='default', input_fname_pattern='*.jpg', output_channel=3,
                  T_input_height=28, T_input_width=28, n_classes=10,
@@ -83,8 +83,8 @@ class deepGAN(object):
         print("reused !\n")
 
         self.D_sum = tf.summary.histogram("d", self.D)
-        self.d__sum = tf.summary.histogram("d_", self.D_)
         self.G_sum = tf.summary.image("G", self.G)
+        self.d__sum = tf.summary.histogram("d_", self.D_)
 
         self.d_loss_real = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
@@ -105,6 +105,7 @@ class deepGAN(object):
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake",
                                                  self.d_loss_fake)
         self.d_loss_sum = tf.summary.scalar("d_loss", self.d_loss)
+        self.g_loss_sum = tf.summary.scalar("g_loss", self.g_loss)
 
         t_vars = tf.trainable_variables()
 
@@ -115,8 +116,10 @@ class deepGAN(object):
 
     def train(self, config):
         self.data_X, self.data_y = self.load_mnist()
-        self.data_X = self.data_X[:50].astype(np.float16)
-        self.data_y = self.data_y[:50].astype(np.float16)
+        self.data_X = self.data_X[:500].astype(np.float16)
+        print(np.sum(self.data_X!=0.))
+        self.data_y = self.data_y[:500].astype(np.float16)
+        print(self.data_y)
 
         print("\ngenerating init pars: ")
         data_pars = np.float16(
@@ -141,7 +144,7 @@ class deepGAN(object):
 
         self.g_sum = tf.summary.merge([
             self.z_sum, self.G_sum, self.d__sum,
-            self.d_loss_fake_sum])
+            self.d_loss_fake_sum, self.g_loss_sum])
         self.d_sum = tf.summary.merge([
             self.z_sum, self.D_sum,
             self.d_loss_real_sum,
@@ -181,23 +184,23 @@ class deepGAN(object):
                     #print(self.batch_pars.shape)
                     #print(batch_cost.shape)
                     #print(batch_z.shape)
-                    print(np.nansum(self.sess.run(
+                    #print(np.nansum(self.sess.run(
                     #print(self.sess.run(
-                        [tf.is_nan(self.inputs),tf.is_nan(self.input)],
+                        #[tf.is_nan(self.inputs),tf.is_nan(self.input)],
+                        #feed_dict={
+                            #self.inputs:self.batch_pars,
+                            #self.cost:batch_cost,
+                            #self.z: batch_z
+                        #})))
+                    print(np.nansum(self.sess.run(
+                        tf.is_nan(self.d_w),
+                    #print(self.sess.run(
+                        #self.d_w,
                         feed_dict={
                             self.inputs:self.batch_pars,
                             self.cost:batch_cost,
                             self.z: batch_z
                         })))
-                    #print(np.nansum(self.sess.run(
-                        #tf.is_nan(self.w),
-                    print(self.sess.run(
-                        self.w,
-                        feed_dict={
-                            self.inputs:self.batch_pars,
-                            self.cost:batch_cost,
-                            self.z: batch_z
-                        }))
                     # Update D network
                     print("\nupdating D network...")
                     #exit()
@@ -209,21 +212,40 @@ class deepGAN(object):
                                                         self.cost: batch_cost
                                                     })
                     self.writer.add_summary(summary_str, counter)
-                    print(self.sess.run(
-                        self.w,
+                    print(np.nansum(self.sess.run(
+                        tf.is_nan(self.d_w),
+                    #print(self.sess.run(
+                        #self.d_w,
                         feed_dict={
                             self.inputs:self.batch_pars,
                             self.cost:batch_cost,
                             self.z: batch_z
-                        }))
-                    time.sleep(30)
+                        })))
+                    print(np.nansum(self.sess.run(
+                        tf.is_nan(self.w),
+                    #print(self.sess.run(
+                        #self.d_w,
+                        feed_dict={
+                            self.inputs:self.batch_pars,
+                            self.cost:batch_cost,
+                            self.z: batch_z
+                        })))
                     # Update G network
                     print("updating G network...")
-                    _ = self.sess.run(g_optim, feed_dict={
+                    _, summary_str = self.sess.run([g_optim, self.g_sum], feed_dict={
                         self.z: batch_z,
                         self.cost: batch_cost,
                     })
-                    #self.writer.add_summary(summary_str, counter)
+                    self.writer.add_summary(summary_str, counter)
+                    print(np.nansum(self.sess.run(
+                        tf.is_nan(self.w),
+                    #print(self.sess.run(
+                        #self.d_w,
+                        feed_dict={
+                            self.inputs:self.batch_pars,
+                            self.cost:batch_cost,
+                            self.z: batch_z
+                        })))
 
                     errD = self.d_loss_real.eval({self.inputs: self.batch_pars,self.cost:batch_cost})
                     errG = self.d_loss_fake.eval({self.z: batch_z,self.cost:batch_cost})
@@ -377,7 +399,7 @@ class deepGAN(object):
                 h2 = concat([h2, cost], 1)
                 #print("h2 dims(concated): " + str(h2.get_shape()))
 
-                h3 = linear(h2, 1, 'd_h3_lin')
+                h3, self.d_w, self.d_bias = linear(h2, 1, 'd_h3_lin', with_w=True)
                 #print("\nh3 dims(lin): " + str(h3.get_shape()))
                 #print("\nh3: " + str(h3))
 
@@ -464,9 +486,11 @@ class deepGAN(object):
                 np.reshape(par[self.cuts[10]:self.cuts[11]],
                            self.biases['b_t_out'].get_shape())
             })
+            # save_images(T, [28, 28], "./rowData1.png")
             # use the evaluator to calculate the loss
+            # print(T)
             loss = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(logits=T, labels=self.data_y))
+                tf.nn.sigmoid_cross_entropy_with_logits(logits=T_logits, labels=tf.ones_like(self.data_y)))
             loss = self.sess.run(loss)
             print("loss: " + str(loss))
             cost.append(loss)
