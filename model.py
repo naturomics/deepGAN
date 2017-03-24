@@ -117,12 +117,14 @@ class deepGAN(object):
 
     def train(self, config):
         self.data_X, self.data_y = self.load_mnist()
-        self.data_X = self.data_X[:10000].astype(np.float32)
-        self.data_y = self.data_y[:10000].astype(np.float32)
+        self.data_X = tf.constant(self.data_X[:3000], tf.float32)
+        self.data_y = tf.constant(self.data_y[:3000], tf.float32)
 
         print("\ngenerating init pars: ")
-        data_pars = np.float32(
-            np.random.normal(0.001, 0.05, (self.batch_size*self.multiple, int(self.cuts[-1]))))
+        #data_pars = np.float32(
+            #np.random.normal(0.001, 0.05, (self.batch_size*self.multiple, int(self.cuts[-1]))))
+        data_pars = tf.constant(tf.random_normal(
+            self.batch_size * self.multiple, int(self.cuts[-1])))
         padding = np.zeros((self.batch_size*self.multiple, self.output_height
                             * self.output_width * self.output_channel
                             - int(self.cuts[-1])), dtype=np.float32)
@@ -162,8 +164,8 @@ class deepGAN(object):
 
         print("initializing cost...")
         data_cost[:, ] = self.evaluator(data_pars[:, ])
-        print("\ntrue cost: ")
-        print(data_cost)
+        #print("\ntrue cost: ")
+        #print(data_cost)
         for cycle in xrange(config.cycle):
             # use T net with generated pars to calculate true loss,
             # and update new (pars, cost) pair
@@ -290,9 +292,10 @@ class deepGAN(object):
             #print("generated parameters dims: " + str(generated_pars.shape))
             save_images(generated_pars, [8, 8], './{}/autoModeler/train_{:04d}.png'.format(config.sample_dir, cycle))
             generated_pars = np.reshape(generated_pars, (self.batch_size, -1))
-            print(generated_pars)
+            #print(generated_pars)
             #print("training data parameters dims: " + str(data_pars.shape))
             generated_pars[:, int(self.cuts[-1]):] = 0
+            np.savetxt('generated_pars.csv', generated_pars, delimiter=',')
             if cycle <= self.cycles:
                 data_pars = np.concatenate((data_pars, generated_pars))
                 data_cost = np.concatenate((data_cost, self.evaluator(data_pars[-self.batch_size:, ])))
@@ -464,9 +467,9 @@ class deepGAN(object):
                                 self.biases['b_t_conv2']))
             h3 = lrelu(conv2d_t(h2, self.weights['w_t_conv3'],
                                 self.biases['b_t_conv3']))
-            h4 = tf.matmul(tf.reshape(h3, [len(self.data_X), -1]),
+            h4 = tf.matmul(tf.reshape(h3, [self.data_X.get_shape().as_list()[0], -1]),
                            self.weights['w_t_fc']) + self.biases['b_t_fc']
-            h5 = tf.matmul(tf.reshape(h4, [len(self.data_X), -1]),
+            h5 = tf.matmul(tf.reshape(h4, [self.data_X.get_shape().as_list()[0], -1]),
                            self.weights['w_t_out']) + self.biases['b_t_out']
 
             return(tf.nn.softmax(h5), h5)
@@ -519,8 +522,14 @@ class deepGAN(object):
             # print(T)
             loss = tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(logits=T_logits, labels=tf.ones_like(self.data_y)))
-            loss = self.sess.run(loss)
-            print("loss: " + str(loss))
+            #np.savetxt('labels_false.csv', T, delimiter="\t")
+            #np.savetxt('labels_true.csv', self.data_y, delimiter="\t")
+            correct_prediction = tf.equal(tf.argmax(T, 1), tf.argmax(self.data_y, 1))
+            accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+            loss = 1 - self.sess.run(accuracy)
+            #nploss = 1 - np.sum(np.all(T == self.data_y,1))/10000
+            print("evaluator loss: " + str(loss))
+            #print("np loss: " + str(nploss))
             cost.append(loss)
         cost = np.reshape(cost, (-1, 1))
 
