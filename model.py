@@ -36,8 +36,7 @@ class deepGAN(object):
         self.T_input_height = T_input_height
         self.T_input_width = T_input_width
         self.z_dim = z_dim
-        self.multiple = 8
-        self.cycles = 200
+        self.cycles = 1
 
         self.gf_dim = gf_dim
         self.df_dim = df_dim
@@ -86,16 +85,18 @@ class deepGAN(object):
         self.G_sum = tf.summary.image("G", self.G)
         self.d__sum = tf.summary.histogram("D_", self.D_)
 
+        #self.d_loss_real = tf.reduce_mean(self.D_logits)
         self.d_loss_real = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 logits=self.D_logits, labels=tf.ones_like(self.D)))
+        #self.d_loss_fake = tf.reduce_mean(self.D_logits_)
         self.d_loss_fake = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
 
-        # self.d_loss = tf.reduce_mean(self.D_logits - self.D_logits_)
+        #self.d_loss = tf.reduce_mean(self.D_logits - self.D_logits_)
         self.d_loss = self.d_loss_real + self.d_loss_fake
-        # self.g_loss = self.d_loss_fake
+        #self.g_loss = tf.reduce_mean(self.D_logits_)
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 logits=self.D_logits_, labels=tf.ones_like(self.D_)))
@@ -116,20 +117,11 @@ class deepGAN(object):
 
     def train(self, config):
         self.data_X, self.data_y = self.load_mnist()
-        self.data_X = tf.constant(self.data_X[:30000], tf.float32)
-        self.data_y = tf.constant(self.data_y[:30000], tf.float32)
-
-        print("\ngenerating init pars: ")
-        #data_pars = np.float32(
-            #np.random.normal(0.001, 0.05, (self.batch_size*self.multiple, int(self.cuts[-1]))))
-        data_pars = tf.constant(tf.random_normal(
-            self.batch_size * self.multiple, int(self.cuts[-1])))
-        padding = np.zeros((self.batch_size*self.multiple, self.output_height
-                            * self.output_width * self.output_channel
-                            - int(self.cuts[-1])), dtype=np.float32)
-        data_pars = np.concatenate((data_pars, padding), axis=1)
-        print("pars generated! pars dims: "+ str(data_pars.shape))
-        data_cost = np.float32(np.random.random(size=(self.batch_size*self.multiple, 1)))
+        self.data_X = np.float32(self.data_X)
+        self.data_y = np.float32(self.data_y)
+        self.data_y_ = self.data_y[:30000]
+        self.data_X = tf.Variable(self.data_X[:30000])
+        self.data_y = tf.Variable(self.data_y[:30000])
 
         print("\ndefine optimizer")
         d_optim = tf.train.RMSPropOptimizer(config.learning_rate,
@@ -152,21 +144,52 @@ class deepGAN(object):
 
         self.writer = tf.summary.FileWriter("./logs", self.sess.graph)
 
-
         counter = 1
         start_time = time.time()
 
         if self.load(self.checkpoint_dir):
-            print(" [*] Load SUCCESS")
+            print("\n [*] Load SUCCESS")
+            print("generating init pars: ")
+            expected_cost = np.random.uniform(size=(self.batch_size, 1), low=0., high=0.1)
+            sample_z = np.random.uniform(size=(self.batch_size, self.z_dim), low=-1, high=1)
+            data_pars = self.sess.run(self.sampler,
+                                           feed_dict={
+                                               self.z: sample_z,
+                                               self.cost: expected_cost,
+                                           })
+            data_pars = np.reshape(data_pars, (self.batch_size, -1))
+            data_pars[:, int(self.cuts[-1]):] = 0
+            data_cost = self.evaluator(data_pars)
+            #print(data_cost)
+            #data_pars = self.selector(data_pars, data_cost)
+            #data_cost = self.evaluator(data_pars)
         else:
-            print(" [!] Load failed...")
+            print("\n [!] Load failed...")
+            print("generating init pars: ")
+            data_pars = np.random.normal(0.00001, 0.05, (self.batch_size, int(self.cuts[-1])))
+            tmp_cost = self.evaluator(data_pars)
+            index = tmp_cost.argsort(axis=0)[0]
+            data_pars = data_pars[index]
+            data_cost = tmp_cost[index]
+            #padding = np.zeros((self.batch_size, self.output_height
+                                #* self.output_width * self.output_channel
+                                #- int(self.cuts[-1])), dtype=np.float32)
+            padding = np.zeros((1, self.output_height
+                                * self.output_width * self.output_channel
+                                - int(self.cuts[-1])), dtype=np.float32)
+            data_pars = np.concatenate((data_pars, padding), axis=1)
+            min_cost = data_cost
+            min_par = data_pars
+            # data_pars = tf.constant(data_pars)
+            #data_cost = self.evaluator(data_pars)
+            #print(data_cost)
+            #print("selecting...")
+            #data_pars = self.selector(data_pars, data_cost)
+            #data_cost = self.evaluator(data_pars)
 
         # use T net with generated pars to calculate true loss,
         # and update new (pars, cost) pair
-        print("initializing cost...")
-        data_cost[:, ] = self.evaluator(data_pars[:, ])
         for cycle in xrange(config.cycle):
-
             for epoch in xrange(config.epoch):
                 batch_idxs = min(len(data_pars), config.train_size) // self.batch_size
                 for idx in xrange(0, batch_idxs):
@@ -193,8 +216,8 @@ class deepGAN(object):
                     })
                     self.writer.add_summary(summary_str, counter)
 
-                    errD = self.d_loss_real.eval({self.inputs: self.batch_pars,self.cost:batch_cost})
-                    errG = self.d_loss_fake.eval({self.z: batch_z,self.cost:batch_cost})
+                    errD = self.d_loss.eval({self.z: batch_z, self.inputs: self.batch_pars, self.cost: batch_cost})
+                    errG = self.g_loss.eval({self.z: batch_z, self.cost: batch_cost})
 
                     counter += 1
                     print("\nCycle: [%2d] Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" % (cycle, epoch, idx, batch_idxs, time.time() - start_time, errD, errG))
@@ -203,12 +226,13 @@ class deepGAN(object):
                 self.save(config.checkpoint_dir, counter)
             # randomly generate pars with expected loss
             max_val = data_cost.min()
-            if (max_val - 0.001) < 0:
-                min_val = np.random.uniform(0, max_val+1e-10, 1)
-            else:
-                min_val = max_val - 0.001
-            expected_cost = tf.constant(tf.random_uniform((self.batch_size, 1), min_val, max_val))
-            sample_z = tf.constant(tf.random_uniform((self.batch_size, self.z_dim), -1, 1))
+            #if (max_val - 0.1) < 0:
+                #min_val = np.random.uniform(0, max_val+1e-10, 1)
+            #else:
+                #min_val = max_val - 0.1
+            min_val = 0
+            expected_cost = np.random.uniform(size=(self.batch_size, 1), low=min_val, high=max_val)
+            sample_z = np.random.uniform(size=(self.batch_size, self.z_dim), low=-1, high=1)
             print("\ngenerating expected parameters...")
             generated_pars = self.sess.run(self.sampler,
                                            feed_dict={
@@ -218,17 +242,47 @@ class deepGAN(object):
             save_images(generated_pars, [self.batch_size//2, self.batch_size//2], './{}/autoModeler/train_{:04d}.png'.format(config.sample_dir, cycle))
             generated_pars = np.reshape(generated_pars, (self.batch_size, -1))
             generated_pars[:, int(self.cuts[-1]):] = 0
-            np.savetxt('generated_pars.csv', generated_pars, delimiter=',')
-            if cycle <= self.cycles:
-                #data_pars = np.concatenate((data_pars, generated_pars))
-                data_pars = tf.concat([data_pars, generated_pars], 0)
-                #data_cost = np.concatenate((data_cost, self.evaluator(data_pars[-self.batch_size:, ])))
-                data_cost = tf.concat([data_cost, self.evaluator(data_pars[-self.batch_size:, ])], 0)
+            # np.savetxt('generated_pars.csv', generated_pars, delimiter=',')
+            if cycle < self.cycles:
+                #tmp_cost = self.evaluator(generated_pars)
+                #index = tmp_cost.argsort(axis=0)[0]
+                #if min_cost > tmp_cost[index]:
+                    #data_cost = np.concatenate((data_cost, tmp_cost[index]))
+                    #data_pars = np.concatenate((data_pars, generated_pars[index]))
+                    #min_cost = tmp_cost[index]
+                    #min_par = generated_pars[index]
+                #else:
+                    #data_cost = np.concatenate((data_cost, min_cost))
+                    #data_pars = np.concatenate((data_pars, min_par))
+                data_pars = np.concatenate((data_pars, generated_pars))
+                data_cost = np.concatenate((data_cost, self.evaluator(generated_pars)))
+                #print("selecting...")
+                #data_pars = self.selector(data_pars, data_cost)
+                #data_cost = self.evaluator(data_pars)
+                # data_pars = tf.concat([data_pars, generated_pars], 0)
+                # data_cost = tf.concat([data_cost, self.evaluator(data_pars[-self.batch_size:, ])], 0)
             else:
-                start = (cycle + self.multiple - 1) % self.cycles * self.batch_size
-                end = start + self.batch_size
-                data_pars[start:end, ] = generated_pars
-                data_cost[start:end, ] = self.evaluator(data_pars[start:end, ])
+                tmp_cost = self.evaluator(generated_pars)
+                index = tmp_cost.argsort(axis=0)[0, :]
+                print(index)
+                if min_cost > tmp_cost[index, :]:
+                    print("evolving...")
+                    site = cycle % (self.cycles * self.batch_size)
+                    data_pars[site, ] = generated_pars[index]
+                    data_cost[site, ] = tmp_cost[index]
+                    min_cost = tmp_cost[index]
+                    min_par = generated_pars[index]
+                else:
+                    site = cycle % (self.cycles * self.batch_size)
+                    data_pars[site, ] = min_par
+                    data_cost[site, ] = min_cost
+                #start = (cycle - 3) % self.cycles * self.batch_size
+                #end = start + self.batch_size
+                #data_pars[start:end, ] = generated_pars
+                #data_cost[start:end, ] = self.evaluator(generated_pars)
+                #print("selecting...")
+                #data_pars = self.selector(data_pars, data_cost)
+                #data_cost = self.evaluator(data_pars)
 
             print("\ncycle [%2d] done" % cycle)
 
@@ -302,8 +356,6 @@ class deepGAN(object):
                         deconv3d(h2, [self.batch_size, s_h, s_w, s_d, self.output_channel], name=name + '_h3'))
 
     def discriminator(self, reuse=False):
-        #print(image)
-        #print(isinstance(image, (tf.Tensor)))
         with tf.variable_scope("discriminator") as scope:
             if reuse:
                 scope.reuse_variables()
@@ -327,13 +379,13 @@ class deepGAN(object):
                 #print("h0 dims(concated): " + str(h0.get_shape()))
                 self.h0 = h0
 
-                #h0_1, self.d_h01w, self.d_h01b = conv2d(h0, self.output_channel + 1, name='d_h0_1_conv', with_w=True)
-                #h0_1 = conv_cond_concat(lrelu(h0_1), cost_reshaped, conv=self.conv)
+                h0_1, self.d_h01w, self.d_h01b = conv2d(h0, self.output_channel + 1, name='d_h0_1_conv', with_w=True)
+                h0_1 = conv_cond_concat(lrelu(h0_1), cost_reshaped, conv=self.conv)
 
                 #h0_2, self.d_h02w, self.d_h02b = conv2d(h0_1, self.output_channel + 1, name='d_h0_2_conv', with_w=True)
                 #h0_2 = conv_cond_concat(lrelu(h0_2), cost_reshaped, conv=self.conv)
 
-                h1, self.d_h1w, self.d_h1b = conv2d(h0, self.df_dim + 1, name='d_h1_conv', with_w=True)
+                h1, self.d_h1w, self.d_h1b = conv2d(h0_1, self.df_dim + 1, name='d_h1_conv', with_w=True)
                 #print("\nh1 dims(conv2ded): " + str(h1.get_shape()))
                 h1 = tf.reshape(lrelu(self.d_bn1(h1)), [self.batch_size, -1])
                 #print("\nh1 dims(reshaped): " + str(h1.get_shape()))
@@ -394,7 +446,10 @@ class deepGAN(object):
         for par in pars:
             #print("parameter :")
             #print(par)
-            T, T_logits = self.sess.run(self.transmitter(self.data_X), feed_dict={
+            T, T_logits = self.transmitter(self.data_X)
+            correct_prediction = tf.equal(tf.argmax(T, 1), tf.argmax(self.data_y, 1))
+            accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+            accuracy = self.sess.run(accuracy, feed_dict={
                 self.weights['w_t_conv0']:
                 np.reshape(par[:self.cuts[0]],
                            self.weights['w_t_conv0'].get_shape()),
@@ -434,21 +489,32 @@ class deepGAN(object):
             })
             # save_images(T, [28, 28], "./rowData1.png")
             # use the evaluator to calculate the loss
-            # print(T)
-            loss = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(logits=T_logits, labels=tf.ones_like(self.data_y)))
-            #np.savetxt('labels_false.csv', T, delimiter="\t")
-            #np.savetxt('labels_true.csv', self.data_y, delimiter="\t")
-            correct_prediction = tf.equal(tf.argmax(T, 1), tf.argmax(self.data_y, 1))
-            accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-            loss = 1 - self.sess.run(accuracy)
-            #nploss = 1 - np.sum(np.all(T == self.data_y,1))/10000
+            # np.savetxt('labels_false.csv', T, delimiter="\t")
+            # np.savetxt('labels_true.csv', self.data_y, delimiter="\t")
+            loss = 1 - accuracy
             print("evaluator loss: " + str(loss))
+            #print(T.shape)
+            #print(self.data_y_.shape)
+            #err_matrix = T == self.data_y_
+            #nploss = np.sum(np.all(err_matrix, 1))
+            #print("numbers of correct samples : " + str(nploss))
+            #nploss = 1 - nploss / 30000
             #print("np loss: " + str(nploss))
             cost.append(loss)
         cost = np.reshape(cost, (-1, 1))
 
         return(cost)
+
+    def selector(self, data_pars, data_cost):
+        index = data_cost.argsort(axis=0)[0, :]
+        prob = np.random.uniform()
+        #if prob < data_cost[index]:
+            #data_pars = data_pars + np.random.normal(scale=data_cost[index] + 0.01, size=data_pars.shape)
+        # method 1
+        #data_pars = data_pars[index] + np.random.normal(scale=0.1*data_cost[index] + 0.01, size=data_pars.shape)
+        # method 2
+        data_pars = data_pars + (data_pars - data_pars[index])/(data_cost - data_cost[index] + 1e-10)
+        return data_pars
 
     def _setup_placeholder(self, k_h=5, k_w=5):
         with tf.variable_scope("transmitter"):
