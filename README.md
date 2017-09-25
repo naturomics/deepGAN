@@ -1,6 +1,10 @@
 # deep GAN
 deep GAN experiment
 
+# Requirement
+* tensorflow
+* numpy
+
 # Usage
 Ensure your system is installed with Git and clone this reposity with command line:
 
