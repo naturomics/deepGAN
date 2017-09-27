@@ -1,6 +1,7 @@
 # deep GAN
-deep GAN experiment
 [![Github All Releases](https://img.shields.io/github/downloads/atom/atom/total.svg?style=plastic)]()
+
+deep GAN experiment
 
 # Requirement
 * tensorflow
