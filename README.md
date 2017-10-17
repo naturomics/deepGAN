@@ -1,7 +1,10 @@
 # deep GAN
 [![Github All Releases](https://img.shields.io/github/downloads/atom/atom/total.svg?style=plastic)]()
 
-deep GAN experiment
+deep GAN experiment.
+
+### Main idea
+Multiple generators cooperate to improve generative ability under the competitive selection of one discriminator
 
 # Requirement
 * tensorflow
