@@ -11,14 +11,24 @@ Multiple generators cooperate to improve generative ability under the competitiv
 * numpy
 
 # Usage
+**Step 1.** Clone this repository and adjust the environment setting in ``main.py`` if necessary.
+
 Ensure your system is installed with Git and clone this reposity with command line:
 
 ```
 $ git clone https://github.com/naturomics/deepGAN.git
 ```
-``cd deepGAN `` and edit file 'main.py' to suit your configure.
+``cd deepGAN `` and edit file 'main.py' to suit your configuration.
 
-Then, start to run with command line:
+**Step 2.** Download [MNIST dataset](http://yann.lecun.com/exdb/mnist/) and ``mv`` them into ``data/mnist`` directory.
+```
+$ mkdir -p data/mnist
+$ cd data/mnist
+$ wget -c http://yann.lecun.com/exdb/mnist/{train-images-idx3-ubyte.gz,train-labels-idx1-ubyte.gz,t10k-images-idx3-ubyte.gz,t10k-labels-idx1-ubyte.gz}
+$ cd ../../   # go back to project root directory
+```
+
+**Step 3.** Start to run with command line:
 ```
 $ python main.py
 ```
