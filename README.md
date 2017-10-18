@@ -45,7 +45,7 @@ d1 total loss:
 ![d1_loss](imgs/training/d1_loss.png)
 
 d2 total loss:
-![d2_loss](imgs/training/d1_loss.png)
+![d2_loss](imgs/training/d2_loss.png)
 
 d loss with g1 as fake input:
 ![d_loss_g1AsFake](imgs/training/d_loss_g1AsFake.png)
