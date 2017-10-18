@@ -20,17 +20,18 @@ $ git clone https://github.com/naturomics/deepGAN.git
 ```
 ``cd deepGAN `` and edit file 'main.py' to suit your configuration.
 
-**Step 2.** Download [MNIST dataset](http://yann.lecun.com/exdb/mnist/) and ``mv`` them into ``data/mnist`` directory.
+**Step 2.** Download [MNIST dataset](http://yann.lecun.com/exdb/mnist/),  ``mv`` and extract them into ``data/mnist`` directory.
 ```
 $ mkdir -p data/mnist
 $ cd data/mnist
 $ wget -c http://yann.lecun.com/exdb/mnist/{train-images-idx3-ubyte.gz,train-labels-idx1-ubyte.gz,t10k-images-idx3-ubyte.gz,t10k-labels-idx1-ubyte.gz}
+$ gunzip *.gz
 $ cd -   # go back to project root directory
 ```
 
-**Step 3.** Start to run with command line:
+**Step 3.** Start to run for training with command line:
 ```
-$ python main.py
+$ python main.py --dataset mnist --input_height=28 --output_height=28 --is_train
 ```
 
 # Results
